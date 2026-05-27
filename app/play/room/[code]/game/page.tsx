@@ -9,6 +9,10 @@ import { useAuth } from "@/lib/auth-store";
 import { GameShell } from "@/components/games/GameShell";
 import { TimeoutGame } from "@/components/games/TimeoutGame";
 import { HighLowGame } from "@/components/games/HighLowGame";
+import { NumberTrapGame } from "@/components/games/NumberTrapGame";
+import { SafecrackerGame } from "@/components/games/SafecrackerGame";
+import { SpotlightGame } from "@/components/games/SpotlightGame";
+import { MinefieldGame } from "@/components/games/MinefieldGame";
 
 export default function MatchPage() {
   const { code } = useParams<{ code: string }>();
@@ -50,6 +54,18 @@ export default function MatchPage() {
       )}
       {room.gameId === "high-low" && (
         <HighLowGame room={room} matchState={matchState ?? null} userId={user.id} />
+      )}
+      {room.gameId === "number-trap" && (
+        <NumberTrapGame room={room} matchState={matchState ?? null} userId={user.id} />
+      )}
+      {room.gameId === "safecracker" && (
+        <SafecrackerGame room={room} matchState={matchState ?? null} userId={user.id} />
+      )}
+      {room.gameId === "spotlight" && (
+        <SpotlightGame room={room} matchState={matchState ?? null} userId={user.id} />
+      )}
+      {room.gameId === "minefield" && (
+        <MinefieldGame room={room} matchState={matchState ?? null} userId={user.id} />
       )}
     </GameShell>
   );

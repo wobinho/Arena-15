@@ -15,7 +15,7 @@ export default function HomePage() {
         <div className="absolute -bottom-12 right-10 w-28 h-28 bg-lime border-[3px] border-black rounded-chunk shadow-pop-lg -rotate-12 hidden sm:block" />
         <div className="absolute top-12 right-20 w-20 h-20 bg-cyan border-[3px] border-black rounded-full shadow-pop animate-float hidden md:block" />
 
-        <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-12 sm:pt-20 pb-16 sm:pb-24">
+        <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 sm:pt-20 pb-10 sm:pb-24">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 border-2 border-black bg-bone-50 rounded-full">
             <span className="relative flex w-2 h-2">
               <span className="absolute inset-0 rounded-full bg-magenta animate-pulse-ring" />
@@ -26,7 +26,7 @@ export default function HomePage() {
             </span>
           </div>
 
-          <h1 className="mt-6 font-display text-5xl sm:text-7xl lg:text-8xl leading-[0.92] text-bone-50">
+          <h1 className="mt-4 sm:mt-6 font-display text-[2.8rem] sm:text-7xl lg:text-8xl leading-[0.92] text-bone-50">
             ONE V ONE.<br />
             <span className="inline-block px-2 -rotate-2 bg-lemon text-black border-[3px] border-black rounded-chunk shadow-pop-lg">
               ZERO MERCY.
@@ -38,7 +38,7 @@ export default function HomePage() {
             friend (or a stranger), and find out who actually has the reflexes.
           </p>
 
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-6 sm:mt-8 flex flex-wrap gap-2 sm:gap-3">
             <Link href="/play">
               <Button size="lg">Quick match</Button>
             </Link>
@@ -65,7 +65,7 @@ export default function HomePage() {
               <div className="flex-1 text-left">
                 <div className="font-display text-xl sm:text-2xl text-bone-50">Browse the game catalog</div>
                 <p className="text-xs sm:text-sm text-bone-200/60 font-semibold mt-0.5">
-                  2 games live — pick one and find out who&apos;s actually better.
+                  {GAMES.filter((g) => g.status === "live").length} games live — pick one and find out who&apos;s actually better.
                 </p>
               </div>
               <div className="flex-shrink-0 w-10 h-10 bg-lemon border-2 border-black rounded-chunk flex items-center justify-center shadow-pop-sm group-hover:translate-x-1 transition-transform">
@@ -153,7 +153,7 @@ export default function HomePage() {
 
       {/* CTA */}
       <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-14 sm:py-20">
-        <div className="relative overflow-hidden border-[3px] border-black rounded-chunk bg-lemon shadow-pop-lg p-8 sm:p-14">
+        <div className="relative overflow-hidden border-[3px] border-black rounded-chunk bg-lemon shadow-pop-lg p-6 sm:p-14">
           <div className="absolute inset-0 bg-stripes opacity-10" />
           <div className="absolute -top-10 right-10 w-32 h-32 bg-magenta border-[3px] border-black rounded-full shadow-pop-lg hidden sm:block animate-float" />
           <div className="relative max-w-2xl">

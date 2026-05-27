@@ -73,4 +73,37 @@ export default defineSchema({
     payload: v.any(),
     createdAt: v.number(),
   }).index("by_room_round", ["roomId", "round"]),
+
+  userGameRatings: defineTable({
+    userId: v.id("users"),
+    gameId: v.string(),
+    rating: v.number(),
+    matchesPlayed: v.number(),
+    wins: v.number(),
+  })
+    .index("by_user_game", ["userId", "gameId"])
+    .index("by_game_rating", ["gameId", "rating"]),
+
+  /**
+   * Server-only store for Safecracker secret codes.
+   * This table is NEVER returned by any public query — only read inside
+   * server-side mutations to validate guesses.
+   */
+  safecrackerSecrets: defineTable({
+    roomId: v.id("rooms"),
+    userId: v.id("users"),
+    code: v.string(), // 4-digit string, e.g. "1234"
+  }).index("by_room_user", ["roomId", "userId"]),
+
+  /**
+   * Server-only store for Minefield bomb positions.
+   * Generated on the first box-open of each round and NEVER returned by
+   * any public query — revealed only in roundResult.payload after the
+   * round ends.
+   */
+  minefieldSecrets: defineTable({
+    roomId: v.id("rooms"),
+    round: v.number(),
+    bombIndices: v.array(v.number()), // 3 indices in 0–24 (5×5 grid)
+  }).index("by_room_round", ["roomId", "round"]),
 });

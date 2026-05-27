@@ -206,6 +206,30 @@ export const toggleReady = mutation({
   },
 });
 
+export const changeGame = mutation({
+  args: { sessionToken: v.string(), roomId: v.id("rooms"), gameId: v.string() },
+  handler: async (ctx, { sessionToken, roomId, gameId }) => {
+    const user = await userFromSession(ctx, sessionToken);
+    if (!user) throw new Error("Not signed in");
+    const room = await ctx.db.get(roomId);
+    if (!room) throw new Error("Room not found");
+    if (room.hostId !== user._id) throw new Error("Only the host can change the game");
+    if (room.status !== "lobby") throw new Error("Cannot change game once the match has started");
+
+    await ctx.db.patch(roomId, { gameId });
+
+    // Reset all players' ready state when the game changes
+    const players = await ctx.db
+      .query("roomPlayers")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .collect();
+    for (const p of players) {
+      await ctx.db.patch(p._id, { ready: false });
+    }
+    return null;
+  },
+});
+
 export const leave = mutation({
   args: { sessionToken: v.string(), roomId: v.id("rooms") },
   handler: async (ctx, { sessionToken, roomId }) => {

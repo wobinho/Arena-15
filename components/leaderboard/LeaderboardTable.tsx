@@ -15,8 +15,8 @@ function toLeaderRows(
   }));
 }
 
-export function LeaderboardTable() {
-  const raw = useQuery(api.leaderboard.getTopPlayers, { limit: 20 });
+export function LeaderboardTable({ gameId }: { gameId: string }) {
+  const raw = useQuery(api.leaderboard.getTopPlayers, { gameId, limit: 20 });
 
   if (raw === undefined) {
     return (

@@ -10,8 +10,9 @@ import {
   useToggleReady,
   useLeaveRoom,
   useJoinRoom,
+  useChangeGame,
 } from "@/lib/room-store";
-import { getGame, ACCENT_CLASSES } from "@/lib/games";
+import { getGame, GAMES, ACCENT_CLASSES, type GameId } from "@/lib/games";
 import { getRatingTier, TIER_STYLES } from "@/lib/leaderboard";
 import { toast } from "@/lib/toast-store";
 import { cn } from "@/lib/cn";
@@ -24,7 +25,9 @@ export default function RoomLobbyPage() {
   const toggleReady = useToggleReady();
   const leaveRoom = useLeaveRoom();
   const joinRoom = useJoinRoom();
+  const changeGame = useChangeGame();
   const [autoJoinAttempted, setAutoJoinAttempted] = useState(false);
+  const [changingGame, setChangingGame] = useState(false);
 
   // Auto-join if user lands on a room URL but isn't in the room yet.
   useEffect(() => {
@@ -71,9 +74,10 @@ export default function RoomLobbyPage() {
     );
   }
 
-  const game = getGame(room.gameId as "timeout" | "high-low");
+  const game = getGame(room.gameId);
   const a = game ? ACCENT_CLASSES[game.accent] : ACCENT_CLASSES.lemon;
   const me = room.players.find((p) => p.userId === user.id);
+  const isHost = me?.isHost ?? false;
 
   async function onToggleReady() {
     if (!me) return;
@@ -81,6 +85,18 @@ export default function RoomLobbyPage() {
       await toggleReady(room!._id);
     } catch (e) {
       toast({ title: "Couldn't toggle ready", body: errorMessage(e), tone: "error" });
+    }
+  }
+
+  async function onChangeGame(gameId: GameId) {
+    if (!isHost || changingGame) return;
+    setChangingGame(true);
+    try {
+      await changeGame(room!._id, gameId);
+    } catch (e) {
+      toast({ title: "Couldn't change game", body: errorMessage(e), tone: "error" });
+    } finally {
+      setChangingGame(false);
     }
   }
 
@@ -110,7 +126,7 @@ export default function RoomLobbyPage() {
     room.players.length === 2 && room.players.every((p) => p.ready);
 
   return (
-    <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14 w-full">
+    <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-6 sm:py-14 w-full">
       <button
         onClick={onLeave}
         className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-widest text-bone-200/60 hover:text-magenta"
@@ -141,14 +157,14 @@ export default function RoomLobbyPage() {
       <div className={cn("mt-8 relative border-[3px] border-black rounded-chunk bg-ink-800 shadow-pop-lg overflow-hidden")}>
         <div className={cn("absolute inset-0 opacity-15", a.bg)} />
         <div className="absolute inset-0 bg-dots opacity-30" />
-        <div className="relative grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 p-6 sm:p-8 items-center">
+        <div className="relative grid grid-cols-[1fr_auto_1fr] gap-2 sm:gap-4 p-4 sm:p-8 items-center">
           {room.players[0] ? (
             <PlayerSlot player={room.players[0]} isMe={room.players[0].userId === user.id} accent={a} />
           ) : (
             <EmptySlot />
           )}
-          <div className="flex md:flex-col items-center justify-center gap-3 py-2">
-            <div className="font-display text-3xl sm:text-5xl text-bone-50 px-4 py-2 bg-black border-[3px] border-bone-50/20 rounded-chunk shadow-pop">
+          <div className="flex flex-col items-center justify-center gap-2 py-1">
+            <div className="font-display text-xl sm:text-5xl text-bone-50 px-2 sm:px-4 py-1 sm:py-2 bg-black border-[3px] border-bone-50/20 rounded-chunk shadow-pop">
               VS
             </div>
           </div>
@@ -166,8 +182,64 @@ export default function RoomLobbyPage() {
         )}
       </div>
 
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="border-[3px] border-black rounded-chunk bg-ink-900 p-5">
+      {/* Game picker */}
+      <div className="mt-4 sm:mt-6 border-[3px] border-black rounded-chunk bg-ink-900 p-3 sm:p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="label-cap">Game</div>
+          {!isHost && (
+            <div className="text-[10px] font-bold uppercase tracking-widest text-bone-200/40">
+              Only the host can change
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          {GAMES.filter((g) => g.status !== "coming-soon").map((g) => {
+            const ga = ACCENT_CLASSES[g.accent];
+            const active = room.gameId === g.id;
+            const disabled = !isHost || changingGame;
+            return (
+              <button
+                key={g.id}
+                onClick={() => onChangeGame(g.id as GameId)}
+                disabled={disabled}
+                className={cn(
+                  "relative text-left p-3 rounded-chunk border-[3px] border-black transition-all",
+                  active
+                    ? cn(ga.bgSoft, "shadow-pop -translate-y-[1px]")
+                    : disabled
+                    ? "bg-ink-800 opacity-60 cursor-not-allowed"
+                    : "bg-ink-800 hover:bg-ink-700 hover:-translate-y-[1px] hover:shadow-pop-sm cursor-pointer"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <div className={cn("w-8 h-8 rounded-chunk border-2 border-black flex items-center justify-center flex-shrink-0 text-sm", active ? ga.bg : "bg-ink-700")}>
+                    {g.icon.split("-")[0].slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <div className={cn("font-display text-sm leading-tight truncate", active ? ga.text : "text-bone-50")}>
+                      {g.name}
+                    </div>
+                    <div className="text-[10px] font-bold text-bone-200/50 truncate">{g.duration}</div>
+                  </div>
+                  {active && (
+                    <div className="ml-auto flex-shrink-0 w-4 h-4 bg-lemon border-2 border-black rounded-full flex items-center justify-center">
+                      <svg width="8" height="7" viewBox="0 0 12 10" fill="none"><path d="M1 5L4.5 8.5L11 2" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {isHost && (
+          <p className="mt-2 text-[10px] text-bone-200/40 font-semibold">
+            Changing game resets both players' ready status.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-4 sm:mt-6 grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+        <div className="border-[3px] border-black rounded-chunk bg-ink-900 p-4 sm:p-5">
           <div className="label-cap mb-2">Your status</div>
           <div className="flex items-center justify-between gap-4">
             <div className="text-bone-50 font-bold">
@@ -186,7 +258,7 @@ export default function RoomLobbyPage() {
             </Button>
           </div>
         </div>
-        <div className="border-[3px] border-black rounded-chunk bg-ink-900 p-5">
+        <div className="border-[3px] border-black rounded-chunk bg-ink-900 p-4 sm:p-5">
           <div className="label-cap mb-2">Rules quick-look</div>
           <ul className="space-y-1.5 text-sm text-bone-200/80 font-semibold">
             {game?.rules.map((r, i) => (
@@ -214,24 +286,24 @@ function PlayerSlot({
   const tierStyle = TIER_STYLES[tier];
   return (
     <div className={cn(
-      "relative flex flex-col items-center p-6 rounded-chunk border-[3px] border-black bg-ink-900 shadow-pop",
+      "relative flex flex-col items-center p-3 sm:p-6 rounded-chunk border-[3px] border-black bg-ink-900 shadow-pop",
       isMe && "ring-4 ring-lemon"
     )}>
       {player.isHost && (
-        <div className="absolute top-3 left-3 chip bg-lemon text-black border-black">Host</div>
+        <div className="absolute top-2 left-2 sm:top-3 sm:left-3 chip bg-lemon text-black border-black text-[9px] sm:text-xs px-1.5 sm:px-2.5">Host</div>
       )}
       {isMe && (
-        <div className="absolute top-3 right-3 chip bg-cyan text-black border-black">YOU</div>
+        <div className="absolute top-2 right-2 sm:top-3 sm:right-3 chip bg-cyan text-black border-black text-[9px] sm:text-xs px-1.5 sm:px-2.5">YOU</div>
       )}
-      <div className={cn("w-24 h-24 rounded-chunk border-[3px] border-black flex items-center justify-center shadow-pop-sm", accent.bg)}>
-        <Placeholder label={player.avatar} size="xl" tone="light" />
+      <div className={cn("w-14 h-14 sm:w-24 sm:h-24 rounded-chunk border-[3px] border-black flex items-center justify-center shadow-pop-sm", accent.bg)}>
+        <Placeholder label={player.avatar} size="md" tone="light" />
       </div>
-      <div className="mt-3 font-display text-xl text-bone-50">@{player.handle}</div>
-      <div className={cn("mt-1 chip border-2 text-xs", tierStyle.bg, tierStyle.color)}>
-        {player.rating.toFixed(3)} · {tier}
+      <div className="mt-2 font-display text-sm sm:text-xl text-bone-50 text-center leading-tight">@{player.handle}</div>
+      <div className={cn("mt-1 chip border-2 text-[9px] sm:text-xs px-1.5 sm:px-2.5", tierStyle.bg, tierStyle.color)}>
+        <span className="hidden sm:inline">{player.rating.toFixed(3)} · </span>{tier}
       </div>
       <div className={cn(
-        "mt-2 chip border-black",
+        "mt-1.5 chip border-black text-[9px] sm:text-xs px-1.5 sm:px-2.5",
         player.ready ? "bg-lime text-black" : "bg-ink-800 text-bone-200/60"
       )}>
         <span className={cn("w-1.5 h-1.5 rounded-full", player.ready ? "bg-black" : "bg-bone-200/40")} />
@@ -243,12 +315,12 @@ function PlayerSlot({
 
 function EmptySlot() {
   return (
-    <div className="flex flex-col items-center p-6 rounded-chunk border-[3px] border-dashed border-black/50 bg-ink-900/40 min-h-[220px] justify-center">
-      <div className="w-24 h-24 rounded-chunk border-[3px] border-dashed border-bone-200/30 flex items-center justify-center text-4xl text-bone-200/30 animate-pulse">
+    <div className="flex flex-col items-center p-3 sm:p-6 rounded-chunk border-[3px] border-dashed border-black/50 bg-ink-900/40 min-h-[140px] sm:min-h-[220px] justify-center">
+      <div className="w-14 h-14 sm:w-24 sm:h-24 rounded-chunk border-[3px] border-dashed border-bone-200/30 flex items-center justify-center text-2xl sm:text-4xl text-bone-200/30 animate-pulse">
         ?
       </div>
-      <div className="mt-3 font-display text-lg text-bone-200/50">Waiting for opponent…</div>
-      <p className="mt-1 text-xs text-bone-200/40 font-semibold">Share the room code above</p>
+      <div className="mt-2 font-display text-sm sm:text-lg text-bone-200/50 text-center">Waiting…</div>
+      <p className="mt-1 text-[10px] sm:text-xs text-bone-200/40 font-semibold text-center">Share the code</p>
     </div>
   );
 }

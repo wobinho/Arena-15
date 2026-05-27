@@ -47,3 +47,12 @@ export function useLeaveRoom() {
     return await leave({ sessionToken, roomId });
   };
 }
+
+export function useChangeGame() {
+  const change = useMutation(api.rooms.changeGame);
+  const { sessionToken } = useAuth();
+  return async (roomId: Id<"rooms">, gameId: GameId) => {
+    if (!sessionToken) throw new Error("No session yet");
+    return await change({ sessionToken, roomId, gameId });
+  };
+}

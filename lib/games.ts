@@ -1,4 +1,4 @@
-export type GameId = "timeout" | "high-low";
+export type GameId = "timeout" | "high-low" | "number-trap" | "safecracker" | "spotlight" | "minefield";
 
 export type Game = {
   id: GameId;
@@ -51,6 +51,85 @@ export const GAMES: Game[] = [
       "A coin flip decides who guesses first.",
       "On your turn, guess your opponent's number — you'll be told higher or lower.",
       "Players alternate turns. First to guess the correct number wins.",
+    ],
+  },
+  {
+    id: "number-trap",
+    name: "Number Trap",
+    tagline: "Go high — but don't bust.",
+    description:
+      "Each round, both players secretly pick a number 1–20. Higher wins… unless the sum exceeds 20. Then the lower number wins. Watch the trap.",
+    duration: "~2 min",
+    players: "1 v 1",
+    difficulty: "Spicy",
+    accent: "coral",
+    icon: "numbertrap-mark",
+    status: "live",
+    rules: [
+      "Each round, both players have 15 seconds to pick a number from 1 to 20.",
+      "The player with the higher number wins the round.",
+      "But if the sum of both numbers exceeds 20, the lower number wins instead.",
+      "A sum of exactly 20 is safe — higher still wins.",
+      "First player to win 3 rounds takes the match.",
+    ],
+  },
+  {
+    id: "spotlight",
+    name: "Spotlight",
+    tagline: "Tap the green. Dodge the red.",
+    description:
+      "A 30-second tapping frenzy. When the zone flashes green, tap as fast as you can — each hit scores a point. Hit red and you lose one. Highest score when the clock runs out wins.",
+    duration: "~30 sec",
+    players: "1 v 1",
+    difficulty: "Hectic",
+    accent: "lime",
+    icon: "spotlight-mark",
+    status: "live",
+    rules: [
+      "The zone alternates between green and red every few seconds.",
+      "Tap the zone when it's green to earn +1 point per tap.",
+      "Tapping the zone when it's red costs you −1 point.",
+      "The game lasts exactly 30 seconds.",
+      "The player with the highest score when time runs out wins.",
+    ],
+  },
+  {
+    id: "safecracker",
+    name: "Safecracker",
+    tagline: "Crack the code. Lock your secret.",
+    description:
+      "Both players lock in a secret 4-digit code. A coin flip decides who guesses first. Reveal each digit position one by one — first to crack your opponent's vault wins.",
+    duration: "~5 min",
+    players: "1 v 1",
+    difficulty: "Spicy",
+    accent: "lemon",
+    icon: "safecracker-mark",
+    status: "live",
+    rules: [
+      "Each player secretly sets a 4-digit code (digits 0–9).",
+      "A coin flip decides who guesses first.",
+      "On your turn, submit a 4-digit guess — each correct digit in the right position locks in.",
+      "Players alternate turns. First to crack all 4 digits of the opponent's code wins.",
+    ],
+  },
+  {
+    id: "minefield",
+    name: "Minefield",
+    tagline: "Click safe. Avoid the boom.",
+    description:
+      "Both players face the same 5×5 grid of 25 boxes hiding 3 bombs. Open boxes one by one — hit a bomb and you lose the round. First to 3 round wins takes the match.",
+    duration: "~3 min",
+    players: "1 v 1",
+    difficulty: "Hectic",
+    accent: "cyan",
+    icon: "minefield-mark",
+    status: "live",
+    rules: [
+      "Both players face the same 5×5 grid with 3 hidden bombs.",
+      "Open boxes one at a time — safe boxes are revealed instantly.",
+      "Hit a bomb and you immediately lose the round.",
+      "Your opponent wins the round when you explode (and vice versa).",
+      "First player to win 3 rounds takes the match.",
     ],
   },
 ];

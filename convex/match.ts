@@ -5,6 +5,10 @@ import { Doc, Id } from "./_generated/dataModel";
 import { userFromSession, DEFAULT_RATING } from "./users";
 import * as Timeout from "./games/timeout";
 import * as HighLow from "./games/highlow";
+import * as NumberTrap from "./games/numbertrap";
+import * as Safecracker from "./games/safecracker";
+import * as Spotlight from "./games/spotlight";
+import * as Minefield from "./games/minefield";
 
 // Each game module conforms to this contract.
 type GameModule = {
@@ -25,17 +29,57 @@ type GameModule = {
     roundResult?: { winnerUserId?: Id<"users">; payload: unknown };
     matchOver?: boolean;
   }>;
+  /** Optional: called by the scheduler after a phase time-limit expires. */
+  onTimeout?: (
+    ctx: MutationCtx,
+    state: Doc<"matchState">,
+    players: Doc<"roomPlayers">[],
+  ) => Promise<{
+    nextPhase: string;
+    nextData: unknown;
+    roundResult?: { winnerUserId?: Id<"users">; payload: unknown };
+    matchOver?: boolean;
+  } | null>;
+  /** If set, the "picking" phase auto-resolves after this many ms. */
+  pickingTimeoutMs?: number;
+  /** If set, the "playing" phase auto-resolves after this many ms. */
+  playingTimeoutMs?: number;
 };
 
 const GAMES: Record<string, GameModule> = {
   timeout: Timeout,
   "high-low": HighLow,
+  "number-trap": { ...NumberTrap, pickingTimeoutMs: NumberTrap.PICK_DURATION_MS },
+  safecracker: Safecracker,
+  spotlight: { ...Spotlight, playingTimeoutMs: Spotlight.PLAYING_TIMEOUT_MS },
+  minefield: Minefield,
 };
 
 export function getGameModule(gameId: string): GameModule {
   const g = GAMES[gameId];
   if (!g) throw new Error(`Unknown game: ${gameId}`);
   return g;
+}
+
+/** Upsert a row in userGameRatings, returning the updated doc. */
+async function getOrCreateGameRating(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  gameId: string,
+) {
+  const existing = await ctx.db
+    .query("userGameRatings")
+    .withIndex("by_user_game", (q) => q.eq("userId", userId).eq("gameId", gameId))
+    .unique();
+  if (existing) return existing;
+  const id = await ctx.db.insert("userGameRatings", {
+    userId,
+    gameId,
+    rating: DEFAULT_RATING,
+    matchesPlayed: 0,
+    wins: 0,
+  });
+  return (await ctx.db.get(id))!;
 }
 
 async function finalizeMatchStats(
@@ -45,6 +89,10 @@ async function finalizeMatchStats(
 ): Promise<Record<string, number>> {
   const deltas: Record<string, number> = {};
   if (players.length !== 2) return deltas;
+
+  const room = await ctx.db.get(roomId);
+  if (!room) return deltas;
+  const { gameId } = room;
 
   const roundResults = await ctx.db
     .query("roundResults")
@@ -68,7 +116,7 @@ async function finalizeMatchStats(
   const p0Won = w0 > w1;
   const p1Won = w1 > w0;
 
-  // Track matchesPlayed and wins for registered accounts.
+  // Track global matchesPlayed and wins for registered accounts.
   if (!user0.isGuest) {
     await ctx.db.patch(user0._id, {
       matchesPlayed: user0.matchesPlayed + 1,
@@ -82,29 +130,88 @@ async function finalizeMatchStats(
     });
   }
 
-  // Apply rating when both are registered and there is a clear winner.
-  if (!user0.isGuest && !user1.isGuest && (p0Won || p1Won)) {
-    const [winnerUser, loserUser, winnerWins, loserWins] = p0Won
-      ? [user0, user1, w0, w1]
-      : [user1, user0, w1, w0];
+  // Update per-game ratings when both are registered.
+  if (!user0.isGuest && !user1.isGuest) {
+    const gr0 = await getOrCreateGameRating(ctx, user0._id, gameId);
+    const gr1 = await getOrCreateGameRating(ctx, user1._id, gameId);
 
-    const winnerRating = winnerUser.rating ?? DEFAULT_RATING;
-    const loserRating = loserUser.rating ?? DEFAULT_RATING;
+    // Update per-game matchesPlayed and wins.
+    await ctx.db.patch(gr0._id, {
+      matchesPlayed: gr0.matchesPlayed + 1,
+      wins: p0Won ? gr0.wins + 1 : gr0.wins,
+    });
+    await ctx.db.patch(gr1._id, {
+      matchesPlayed: gr1.matchesPlayed + 1,
+      wins: p1Won ? gr1.wins + 1 : gr1.wins,
+    });
 
-    // baseGain: 0.05 per round won minus 0.05 per round the opponent won.
-    // multiplier: winner_rating / loser_rating (higher-rated winner gains more).
-    const baseGain = winnerWins * 0.05 - loserWins * 0.05;
-    const multiplier = winnerRating / Math.max(0.01, loserRating);
-    const delta = Math.round(baseGain * multiplier * 1000) / 1000;
+    // Apply rating delta when there is a clear winner.
+    if (p0Won || p1Won) {
+      const [winnerGR, loserGR] = p0Won
+        ? [gr0, gr1]
+        : [gr1, gr0];
 
-    await ctx.db.patch(winnerUser._id, { rating: winnerRating + delta });
-    await ctx.db.patch(loserUser._id, { rating: Math.max(0.01, loserRating - delta) });
+      const winnerRating = winnerGR.rating;
+      const loserRating = loserGR.rating;
 
-    deltas[winnerUser._id as string] = delta;
-    deltas[loserUser._id as string] = -delta;
+      // Per-game rating formulas:
+      //   Timeout:      delta = 0.15 * (loserRating / winnerRating)
+      //   High-Low:     delta = 0.20 * (loserRating / winnerRating)
+      //   Number Trap:  delta = 0.25 * (loserRating / winnerRating)
+      //   Spotlight:    delta = 0.15 * (loserRating / winnerRating)
+      const factor =
+        gameId === "safecracker" ? 0.5 :
+        gameId === "number-trap" ? 0.25 :
+        gameId === "high-low" ? 0.2 :
+        gameId === "minefield" ? 0.3 :
+        gameId === "spotlight" ? 0.15 : 0.15;
+      const delta = Math.round(factor * (loserRating / Math.max(0.01, winnerRating)) * 1000) / 1000;
+
+      await ctx.db.patch(winnerGR._id, { rating: winnerRating + delta });
+      await ctx.db.patch(loserGR._id, { rating: Math.max(0.01, loserRating - delta) });
+
+      deltas[winnerGR.userId as string] = delta;
+      deltas[loserGR.userId as string] = -delta;
+    }
   }
 
   return deltas;
+}
+
+/** Schedule a picking-phase timeout for games that have one (e.g. Number Trap). */
+async function maybeSchedulePickingTimeout(
+  ctx: MutationCtx,
+  gameId: string,
+  roomId: Id<"rooms">,
+  round: number,
+  phase: string,
+) {
+  const mod = GAMES[gameId];
+  if (!mod?.pickingTimeoutMs || phase !== "picking") return;
+  // Add a small buffer (1 s) so the server resolves after the client timer expires.
+  await ctx.scheduler.runAfter(
+    mod.pickingTimeoutMs + 1000,
+    internal.match.autoPickingTimeout,
+    { roomId, round },
+  );
+}
+
+/** Schedule a playing-phase timeout for games that have a fixed duration (e.g. Spotlight). */
+async function maybeSchedulePlayingTimeout(
+  ctx: MutationCtx,
+  gameId: string,
+  roomId: Id<"rooms">,
+  round: number,
+  phase: string,
+) {
+  const mod = GAMES[gameId];
+  if (!mod?.playingTimeoutMs || phase !== "playing") return;
+  // Add a small buffer (1 s) so the server resolves after the client timer expires.
+  await ctx.scheduler.runAfter(
+    mod.playingTimeoutMs + 1000,
+    internal.match.autoPlayingTimeout,
+    { roomId, round },
+  );
 }
 
 // Internal helper called from rooms.toggleReady when both players ready up.
@@ -143,6 +250,9 @@ export async function startMatch(ctx: MutationCtx, roomId: Id<"rooms">) {
   for (const p of players) {
     await ctx.db.patch(p._id, { score: 0, streak: 0, ready: false });
   }
+
+  await maybeSchedulePickingTimeout(ctx, room.gameId, roomId, 1, initial.phase);
+  await maybeSchedulePlayingTimeout(ctx, room.gameId, roomId, 1, initial.phase);
 }
 
 export const getMatchState = query({
@@ -258,12 +368,14 @@ export const nextRound = mutation({
       // Both players voted — advance immediately.
       const mod = getGameModule(state.gameId);
       const next = mod.nextRoundData(state, players);
+      const nextRoundNum = state.round + 1;
       await ctx.db.patch(state._id, {
-        round: state.round + 1,
+        round: nextRoundNum,
         phase: next.phase,
         phaseStartedAt: Date.now(),
         data: next.data,
       });
+      await maybeSchedulePickingTimeout(ctx, state.gameId, roomId, nextRoundNum, next.phase);
     } else {
       // Record vote, wait for the other player or the 5-second auto-advance.
       await ctx.db.patch(state._id, {
@@ -294,12 +406,133 @@ export const autoNextRound = internalMutation({
 
     const mod = getGameModule(state.gameId);
     const next = mod.nextRoundData(state, players);
+    const nextRoundNum = state.round + 1;
     await ctx.db.patch(state._id, {
-      round: state.round + 1,
+      round: nextRoundNum,
       phase: next.phase,
       phaseStartedAt: Date.now(),
       data: next.data,
     });
+    await maybeSchedulePickingTimeout(ctx, state.gameId, roomId, nextRoundNum, next.phase);
+    return null;
+  },
+});
+
+export const autoPickingTimeout = internalMutation({
+  args: { roomId: v.id("rooms"), round: v.number() },
+  handler: async (ctx, { roomId, round }) => {
+    const state = await ctx.db
+      .query("matchState")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .unique();
+    // No-op if already resolved (different phase, different round, or no state)
+    if (!state || state.phase !== "picking" || state.round !== round) return null;
+
+    const room = await ctx.db.get(roomId);
+    if (!room || room.status !== "in-game") return null;
+
+    const players = await ctx.db
+      .query("roomPlayers")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .collect();
+
+    const mod = getGameModule(state.gameId);
+    if (!mod.onTimeout) return null;
+
+    const result = await mod.onTimeout(ctx, state, players);
+    if (!result) return null;
+
+    const patch: { data: unknown; phase?: string; phaseStartedAt?: number } = {
+      data: result.nextData,
+    };
+    if (result.nextPhase !== state.phase) {
+      patch.phase = result.nextPhase;
+      patch.phaseStartedAt = Date.now();
+    }
+    await ctx.db.patch(state._id, patch);
+
+    if (result.roundResult) {
+      await ctx.db.insert("roundResults", {
+        roomId,
+        round: state.round,
+        winnerUserId: result.roundResult.winnerUserId,
+        payload: result.roundResult.payload,
+        createdAt: Date.now(),
+      });
+    }
+
+    if (result.matchOver) {
+      await ctx.db.patch(roomId, { status: "finished" });
+      const ratingDeltas = await finalizeMatchStats(ctx, roomId, players);
+      if (Object.keys(ratingDeltas).length > 0) {
+        await ctx.db.patch(state._id, {
+          data: { ...(result.nextData as Record<string, unknown>), ratingDeltas },
+        });
+      }
+    } else if (result.nextPhase === "round-result") {
+      await ctx.scheduler.runAfter(5000, internal.match.autoNextRound, {
+        roomId,
+        round: state.round,
+      });
+    }
+
+    return null;
+  },
+});
+
+export const autoPlayingTimeout = internalMutation({
+  args: { roomId: v.id("rooms"), round: v.number() },
+  handler: async (ctx, { roomId, round }) => {
+    const state = await ctx.db
+      .query("matchState")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .unique();
+    // No-op if already resolved (different phase, different round, or no state)
+    if (!state || state.phase !== "playing" || state.round !== round) return null;
+
+    const room = await ctx.db.get(roomId);
+    if (!room || room.status !== "in-game") return null;
+
+    const players = await ctx.db
+      .query("roomPlayers")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .collect();
+
+    const mod = getGameModule(state.gameId);
+    if (!mod.onTimeout) return null;
+
+    const result = await mod.onTimeout(ctx, state, players);
+    if (!result) return null;
+
+    const patch: { data: unknown; phase?: string; phaseStartedAt?: number } = {
+      data: result.nextData,
+    };
+    if (result.nextPhase !== state.phase) {
+      patch.phase = result.nextPhase;
+      patch.phaseStartedAt = Date.now();
+    }
+    await ctx.db.patch(state._id, patch);
+
+    if (result.roundResult) {
+      await ctx.db.insert("roundResults", {
+        roomId,
+        round: state.round,
+        winnerUserId: result.roundResult.winnerUserId,
+        payload: result.roundResult.payload,
+        createdAt: Date.now(),
+      });
+    }
+
+    if (result.matchOver) {
+      await ctx.db.patch(roomId, { status: "finished" });
+      const ratingDeltas = await finalizeMatchStats(ctx, roomId, players);
+      if (Object.keys(ratingDeltas).length > 0) {
+        await ctx.db.patch(state._id, {
+          data: { ...(result.nextData as Record<string, unknown>), ratingDeltas },
+        });
+      }
+    }
+
     return null;
   },
 });

@@ -180,7 +180,7 @@ export function TimeoutGame({
     (me.score > oppFinalScore);
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 sm:py-12 relative overflow-hidden">
+    <div className="flex-1 flex flex-col items-center justify-start sm:justify-center px-4 py-4 sm:py-8 relative overflow-y-auto">
       <div className="relative w-full max-w-xl">
         <div className="grid grid-cols-2 gap-3 mb-3 text-center">
           <ScoreCard
@@ -210,7 +210,7 @@ export function TimeoutGame({
           <span>First to {TARGET_SCORE} rounds</span>
         </div>
 
-        <div className="relative aspect-[5/4] rounded-chunk border-[3px] border-black bg-ink-900 shadow-pop-lg overflow-hidden">
+        <div className="relative h-[clamp(200px,40vh,360px)] rounded-chunk border-[3px] border-black bg-ink-900 shadow-pop-lg overflow-hidden">
           <div className="absolute inset-0 bg-dots opacity-40" />
           <div className={cn("absolute inset-0 opacity-10", accent.bg)} />
 
@@ -289,15 +289,15 @@ function ScoreCard({
   color: string;
 }) {
   return (
-    <div className="border-[3px] border-black rounded-chunk bg-ink-800 p-3 text-left">
-      <div className="flex items-baseline justify-between gap-2">
+    <div className="border-[3px] border-black rounded-chunk bg-ink-800 p-2 sm:p-3 text-left">
+      <div className="flex items-baseline justify-between gap-1">
         <div className="label-cap">{who}</div>
-        <div className="text-[10px] font-bold text-bone-200/50 truncate">{handle}</div>
+        <div className="text-[9px] sm:text-[10px] font-bold text-bone-200/50 truncate">{handle}</div>
       </div>
-      <div className={cn("font-display text-3xl mt-1 tabular-nums", color)}>
-        {wins}<span className="text-sm font-bold ml-1 text-bone-200/50">/ {TARGET_SCORE}</span>
+      <div className={cn("font-display text-2xl sm:text-3xl mt-0.5 tabular-nums", color)}>
+        {wins}<span className="text-xs sm:text-sm font-bold ml-1 text-bone-200/50">/ {TARGET_SCORE}</span>
       </div>
-      <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-bone-200/60">
+      <div className="mt-0.5 text-[9px] font-bold uppercase tracking-widest text-bone-200/60">
         Streak {streak}
       </div>
     </div>
@@ -321,8 +321,8 @@ function RevealStage({
       <div className="label-cap mb-2">Round {round} · Target</div>
       <div className="relative">
         <div className={cn("absolute -inset-6 rounded-full opacity-30 animate-pulse-ring", accentBg)} />
-        <div className="relative font-display text-7xl sm:text-8xl text-bone-50 tabular-nums">
-          {target.toFixed(2)}<span className="text-3xl sm:text-4xl text-bone-200/60">s</span>
+        <div className="relative font-display text-6xl sm:text-8xl text-bone-50 tabular-nums">
+          {target.toFixed(2)}<span className="text-2xl sm:text-4xl text-bone-200/60">s</span>
         </div>
       </div>
       <div className="mt-4 text-xs font-bold uppercase tracking-widest text-bone-200/70">
@@ -366,8 +366,8 @@ function TimingStage({
       />
       {!youLocked && (
         <>
-          <div className="font-display text-6xl sm:text-8xl text-black tracking-wide">STOP</div>
-          <div className="mt-3 text-[10px] sm:text-xs font-bold uppercase tracking-widest text-black/70">
+          <div className="font-display text-5xl sm:text-8xl text-black tracking-wide">STOP</div>
+          <div className="mt-2 text-[10px] sm:text-xs font-bold uppercase tracking-widest text-black/70 px-4 text-center">
             Tap when you think you've hit the target
           </div>
         </>
@@ -543,14 +543,14 @@ function MatchOverStage({
       <div className="mt-4 flex gap-3">
         <Placeholder label="trophy" size="lg" />
       </div>
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-        <Button onClick={onReset} size="md">
+      <div className="mt-4 flex flex-col sm:flex-row flex-wrap items-center justify-center gap-2 w-full px-4">
+        <Button onClick={onReset} size="md" className="w-full sm:w-auto">
           Rematch
         </Button>
-        <Button onClick={onLobby} size="md" variant="ghost">
+        <Button onClick={onLobby} size="md" variant="ghost" className="w-full sm:w-auto">
           Back to room
         </Button>
-        <Button onClick={onMenu} size="md" variant="ghost">
+        <Button onClick={onMenu} size="md" variant="ghost" className="w-full sm:w-auto">
           Main menu
         </Button>
       </div>

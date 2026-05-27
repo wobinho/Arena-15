@@ -57,26 +57,26 @@ export function GameShell({
       />
 
       <div className="relative border-b-2 border-black bg-ink-950/80 backdrop-blur-md sticky top-0 z-30">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-4">
+        <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 h-12 sm:h-14 flex items-center justify-between gap-2 sm:gap-4">
           <button
             onClick={onForfeit}
-            className="text-xs font-bold uppercase tracking-widest text-bone-200/60 hover:text-magenta"
+            className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-bone-200/60 hover:text-magenta shrink-0"
           >
             Forfeit
           </button>
-          <div className="flex items-center gap-3">
-            <span className={cn("chip text-black border-black", a.bg)}>{game.name}</span>
-            <span className="chip bg-ink-800 text-bone-50 hidden sm:inline-flex">
-              Room <span className="font-mono">{room.code}</span>
+          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+            <span className={cn("chip text-black border-black text-[10px] sm:text-xs px-2 sm:px-2.5", a.bg)}>{game.name}</span>
+            <span className="chip bg-ink-800 text-bone-50 text-[10px] sm:text-xs px-2 sm:px-2.5">
+              <span className="font-mono">{room.code}</span>
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {room.players
               .map((p) => {
                 const tier = getRatingTier(p.rating);
                 const ts = TIER_STYLES[tier];
                 return (
-                  <div key={p.userId} className="flex items-center gap-1.5">
+                  <div key={p.userId} className="flex items-center gap-1 sm:gap-1.5">
                     <Placeholder label={p.avatar} size="xs" shape="circle" />
                     <span className="hidden sm:inline text-xs font-bold">{p.handle}</span>
                     <span className={cn("hidden sm:inline chip text-[10px] px-1.5 py-0.5 border", ts.bg, ts.color)}>
@@ -88,7 +88,7 @@ export function GameShell({
               .reduce<React.ReactNode[]>((acc, el, i, arr) => {
                 acc.push(el);
                 if (i < arr.length - 1) acc.push(
-                  <span key={`vs-${i}`} className="text-bone-200/40 font-display text-xs">vs</span>,
+                  <span key={`vs-${i}`} className="text-bone-200/40 font-display text-[10px] sm:text-xs">vs</span>,
                 );
                 return acc;
               }, [])}

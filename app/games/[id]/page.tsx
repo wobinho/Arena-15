@@ -109,7 +109,7 @@ export default async function GameDetailPage({ params }: { params: Promise<{ id:
               Full board
             </Link>
           </div>
-          <GameTopPlayers />
+          <GameTopPlayers gameId={game.id} />
         </section>
       </div>
     </div>

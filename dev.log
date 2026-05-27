@@ -2,13 +2,14 @@
 > arena-15@0.1.0 dev
 > next dev
 
- ⚠ Port 3000 is in use, trying 3001 instead.
    ▲ Next.js 15.1.7
-   - Local:        http://localhost:3001
-   - Network:      http://192.168.254.100:3001
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.254.100:3000
    - Environments: .env.local
 
  ✓ Starting...
- ✓ Ready in 1595ms
-   Reload env: .env.local
-   Reload env: .env.local
+ ✓ Ready in 1599ms
+ ○ Compiling / ...
+ ✓ Compiled / in 1953ms (807 modules)
+ GET / 200 in 2243ms
+ GET / 200 in 26ms

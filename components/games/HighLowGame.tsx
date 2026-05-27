@@ -138,15 +138,15 @@ export function HighLowGame({
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 sm:py-12 relative overflow-hidden">
+    <div className="flex-1 flex flex-col items-center justify-start sm:justify-center px-4 py-4 sm:py-8 relative overflow-y-auto">
       <div className="relative w-full max-w-xl">
-        <div className="flex items-center justify-center gap-2 mb-4 text-[10px] font-bold uppercase tracking-widest text-bone-200/60">
+        <div className="flex items-center justify-center gap-2 mb-3 text-[10px] font-bold uppercase tracking-widest text-bone-200/60">
           <span className={accent.text}>High-Low</span>
           <span className="opacity-50">·</span>
           <span>@{me?.handle ?? "you"} vs @{opp?.handle ?? "opponent"}</span>
         </div>
 
-        <div className="relative aspect-[5/4] rounded-chunk border-[3px] border-black bg-ink-900 shadow-pop-lg overflow-hidden">
+        <div className="relative h-[clamp(260px,45vh,400px)] rounded-chunk border-[3px] border-black bg-ink-900 shadow-pop-lg overflow-hidden">
           <div className="absolute inset-0 bg-dots opacity-40" />
           <div className={cn("absolute inset-0 opacity-10", accent.bg)} />
 
@@ -464,10 +464,10 @@ function MatchOverStage({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <Button onClick={onRematch} size="md">Rematch</Button>
-        <Button onClick={onLobby} size="md" variant="ghost">Back to room</Button>
-        <Button onClick={onMenu} size="md" variant="ghost">Main menu</Button>
+      <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-2 w-full px-2">
+        <Button onClick={onRematch} size="md" className="w-full sm:w-auto">Rematch</Button>
+        <Button onClick={onLobby} size="md" variant="ghost" className="w-full sm:w-auto">Back to room</Button>
+        <Button onClick={onMenu} size="md" variant="ghost" className="w-full sm:w-auto">Main menu</Button>
       </div>
     </div>
   );

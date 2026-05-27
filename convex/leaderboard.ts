@@ -3,22 +3,44 @@ import { query } from "./_generated/server";
 import { DEFAULT_RATING } from "./users";
 
 export const getTopPlayers = query({
-  args: { limit: v.optional(v.number()) },
-  handler: async (ctx, { limit = 20 }) => {
-    // Scan all users (documents with undefined rating are excluded from the by_rating
-    // index, so we do a full scan and sort in JS to ensure no one is missed).
-    const candidates = await ctx.db.query("users").take(500);
+  args: {
+    gameId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { gameId, limit = 20 }) => {
+    // Fetch top rows for this game ordered by rating descending.
+    // The by_game_rating index is (gameId, rating) so we can use it directly.
+    const rows = await ctx.db
+      .query("userGameRatings")
+      .withIndex("by_game_rating", (q) => q.eq("gameId", gameId))
+      .order("desc")
+      .take(500);
 
-    const active = candidates
-      .filter((u) => !u.isGuest && (u.matchesPlayed ?? 0) >= 1)
-      .sort((a, b) => (b.rating ?? DEFAULT_RATING) - (a.rating ?? DEFAULT_RATING));
+    // Filter to players with at least 1 match, then resolve user info.
+    const results: Array<{
+      rank: number;
+      handle: string;
+      avatar: string;
+      rating: number;
+      matchesPlayed: number;
+    }> = [];
 
-    return active.slice(0, limit).map((u, i) => ({
-      rank: i + 1,
-      handle: u.handle,
-      avatar: u.avatar,
-      rating: u.rating ?? DEFAULT_RATING,
-      matchesPlayed: u.matchesPlayed ?? 0,
-    }));
+    for (const row of rows) {
+      if (row.matchesPlayed < 1) continue;
+      const user = await ctx.db.get(row.userId);
+      if (!user || user.isGuest) continue;
+
+      results.push({
+        rank: 0, // filled below
+        handle: user.handle,
+        avatar: user.avatar,
+        rating: row.rating,
+        matchesPlayed: row.matchesPlayed,
+      });
+
+      if (results.length >= limit) break;
+    }
+
+    return results.map((r, i) => ({ ...r, rank: i + 1 }));
   },
 });

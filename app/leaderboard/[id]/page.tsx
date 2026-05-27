@@ -57,7 +57,7 @@ export default async function LeaderboardPage({ params }: { params: Promise<{ id
       </div>
 
       {/* Podium + Table (client component with live Convex data) */}
-      <LeaderboardTable />
+      <LeaderboardTable gameId={game.id} />
     </div>
   );
 }

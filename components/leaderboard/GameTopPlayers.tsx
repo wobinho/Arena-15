@@ -5,8 +5,8 @@ import { api } from "@/convex/_generated/api";
 import { Placeholder } from "@/components/ui/Placeholder";
 import { getRatingTier, TIER_STYLES } from "@/lib/leaderboard";
 
-export function GameTopPlayers() {
-  const players = useQuery(api.leaderboard.getTopPlayers, { limit: 5 });
+export function GameTopPlayers({ gameId }: { gameId: string }) {
+  const players = useQuery(api.leaderboard.getTopPlayers, { gameId, limit: 5 });
 
   if (players === undefined) {
     return (
@@ -50,7 +50,7 @@ export function GameTopPlayers() {
             </div>
             <div className={`chip ${t.bg} ${t.color} border-2`}>{tier}</div>
             <div className="font-display text-lg text-bone-50 tabular-nums hidden sm:block">
-              {p.rating.toLocaleString()}
+              {p.rating.toFixed(3)}
             </div>
           </li>
         );

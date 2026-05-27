@@ -236,14 +236,19 @@ export const getMyGameStats = query({
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .take(200);
 
-    const perGame: Record<string, { wins: number; losses: number }> = {};
+    const perGame: Record<
+      string,
+      { wins: number; losses: number; rating: number; ratingMatchesPlayed: number }
+    > = {};
 
     for (const rp of participations) {
       const room = await ctx.db.get(rp.roomId);
       if (!room || room.status !== "finished") continue;
 
       const { gameId } = room;
-      if (!perGame[gameId]) perGame[gameId] = { wins: 0, losses: 0 };
+      if (!perGame[gameId]) {
+        perGame[gameId] = { wins: 0, losses: 0, rating: DEFAULT_RATING, ratingMatchesPlayed: 0 };
+      }
 
       const roundResults = await ctx.db
         .query("roundResults")
@@ -266,6 +271,26 @@ export const getMyGameStats = query({
         perGame[gameId].wins++;
       } else if (myWins < opponentWins) {
         perGame[gameId].losses++;
+      }
+    }
+
+    // Enrich each game entry with the per-game rating from userGameRatings.
+    const gameRatings = await ctx.db
+      .query("userGameRatings")
+      .withIndex("by_user_game", (q) => q.eq("userId", user._id))
+      .take(50);
+
+    for (const gr of gameRatings) {
+      if (!perGame[gr.gameId]) {
+        perGame[gr.gameId] = {
+          wins: gr.wins,
+          losses: gr.matchesPlayed - gr.wins,
+          rating: gr.rating,
+          ratingMatchesPlayed: gr.matchesPlayed,
+        };
+      } else {
+        perGame[gr.gameId].rating = gr.rating;
+        perGame[gr.gameId].ratingMatchesPlayed = gr.matchesPlayed;
       }
     }
 

@@ -69,7 +69,7 @@ function PlayInner() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-10 sm:py-16 w-full">
+    <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-6 sm:py-14 w-full">
       <div className="label-cap mb-2">Find a match</div>
       <h1 className="font-display text-4xl sm:text-5xl text-bone-50">
         Time to <span className="text-cyan">play.</span>
@@ -79,7 +79,7 @@ function PlayInner() {
         {user?.isGuest && " You're playing as a guest — sign up to claim a permanent handle."}
       </p>
 
-      <div className="mt-8 inline-flex p-1.5 border-[3px] border-black bg-ink-900 rounded-chunk shadow-pop overflow-x-auto max-w-full">
+      <div className="mt-6 sm:mt-8 flex p-1.5 border-[3px] border-black bg-ink-900 rounded-chunk shadow-pop overflow-x-auto max-w-full w-fit">
         {([
           { id: "room", label: "Create room" },
           { id: "join", label: "Join with code" },
@@ -98,8 +98,8 @@ function PlayInner() {
         ))}
       </div>
 
-      <div className="mt-8 grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-6">
-        <div className="border-[3px] border-black rounded-chunk bg-ink-800 p-6 shadow-pop-lg">
+      <div className="mt-6 sm:mt-8 grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-4 sm:gap-6">
+        <div className="border-[3px] border-black rounded-chunk bg-ink-800 p-4 sm:p-6 shadow-pop-lg">
           {(mode === "quick" || mode === "room") && (
             <>
               <div className="label-cap mb-3">Select game</div>
@@ -107,14 +107,14 @@ function PlayInner() {
                 {GAMES.map((g) => {
                   const a = ACCENT_CLASSES[g.accent];
                   const active = selectedGame === g.id;
-                  const disabled = g.id !== "timeout";
+                  const disabled = g.status === "coming-soon";
                   return (
                     <button
                       key={g.id}
                       onClick={() => !disabled && setSelectedGame(g.id)}
                       disabled={disabled}
                       className={cn(
-                        "relative text-left p-4 rounded-chunk border-[3px] border-black bg-ink-900 transition-all",
+                        "relative text-left p-3 sm:p-4 rounded-chunk border-[3px] border-black bg-ink-900 transition-all",
                         active ? `${a.bgSoft} shadow-pop -translate-y-[1px]` : "shadow-pop-sm hover:-translate-y-[1px]",
                         disabled && "opacity-40 cursor-not-allowed"
                       )}
@@ -189,11 +189,11 @@ function PlayInner() {
           )}
         </div>
 
-        <div className="border-[3px] border-black rounded-chunk bg-ink-900 p-6 shadow-pop-lg flex flex-col">
+        <div className="border-[3px] border-black rounded-chunk bg-ink-900 p-4 sm:p-6 shadow-pop-lg flex flex-col">
           {mode === "quick" && (
             <>
               <div className="label-cap">Status</div>
-              <div className="mt-3 flex-1 flex flex-col items-center justify-center text-center min-h-[260px]">
+              <div className="mt-3 flex-1 flex flex-col items-center justify-center text-center min-h-[180px] sm:min-h-[260px]">
                 <div className="mb-4 animate-float">
                   <Placeholder label="quick-match" size="2xl" />
                 </div>
@@ -211,7 +211,7 @@ function PlayInner() {
           {mode === "room" && (
             <>
               <div className="label-cap">Ready?</div>
-              <div className="mt-3 flex-1 flex flex-col items-center justify-center text-center min-h-[260px]">
+              <div className="mt-3 flex-1 flex flex-col items-center justify-center text-center min-h-[180px] sm:min-h-[260px]">
                 <div className="mb-4">
                   <Placeholder label="room" size="2xl" />
                 </div>
@@ -229,7 +229,7 @@ function PlayInner() {
           {mode === "join" && (
             <>
               <div className="label-cap">Ready to join</div>
-              <div className="mt-3 flex-1 flex flex-col items-center justify-center text-center min-h-[260px]">
+              <div className="mt-3 flex-1 flex flex-col items-center justify-center text-center min-h-[180px] sm:min-h-[260px]">
                 <div className="mb-4">
                   <Placeholder label="join" size="2xl" />
                 </div>

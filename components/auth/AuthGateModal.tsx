@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth, usePlayAsGuest } from "@/lib/auth-store";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
@@ -11,10 +11,12 @@ const buttonStyles = "inline-flex items-center justify-center gap-2 font-display
 export function AuthGateModal() {
   const { hydrated, user, sessionToken } = useAuth();
   const playAsGuest = usePlayAsGuest();
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
 
   // Only show when hydrated and no session at all
-  if (!hydrated || sessionToken || user) return null;
+  if (!hydrated || sessionToken || user || dismissed) return null;
 
   async function handleGuest() {
     setLoading(true);
@@ -23,6 +25,16 @@ export function AuthGateModal() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleLogin() {
+    setDismissed(true);
+    router.push("/login");
+  }
+
+  function handleSignup() {
+    setDismissed(true);
+    router.push("/signup");
   }
 
   return (
@@ -61,12 +73,20 @@ export function AuthGateModal() {
                 <li className="flex items-center gap-1.5"><span className="text-lime">✓</span> Public &amp; private rooms</li>
               </ul>
               <div className="flex flex-col gap-2 mt-auto pt-1">
-                <Link href="/login" className={cn(buttonStyles, "bg-lemon text-black hover:bg-lemon-dark")}>
+                <button
+                  onClick={handleLogin}
+                  disabled={loading}
+                  className={cn(buttonStyles, "bg-lemon text-black hover:bg-lemon-dark")}
+                >
                   Log in
-                </Link>
-                <Link href="/signup" className={cn(buttonStyles, "bg-ink-800 text-bone-50 hover:bg-ink-700")}>
+                </button>
+                <button
+                  onClick={handleSignup}
+                  disabled={loading}
+                  className={cn(buttonStyles, "bg-ink-800 text-bone-50 hover:bg-ink-700")}
+                >
                   Create account
-                </Link>
+                </button>
               </div>
             </div>
 
