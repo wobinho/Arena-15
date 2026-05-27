@@ -179,6 +179,52 @@ export function TimeoutGame({
     me &&
     (me.score > oppFinalScore);
 
+  // ── Show last-round result before revealing match-over screen ─────────────
+  // When the winning point ends the match the server jumps straight to
+  // "match-over", skipping "round-result". We locally gate the final screen
+  // behind a brief round-result display so the player sees what happened.
+  const [matchOverReady, setMatchOverReady] = useState(true);
+  const prevClientPhaseRef = useRef<ClientPhase>("waiting");
+  const [matchOverCountdown, setMatchOverCountdown] = useState(AUTO_ADVANCE_MS / 1000);
+
+  useEffect(() => {
+    const prev = prevClientPhaseRef.current;
+    prevClientPhaseRef.current = clientPhase;
+
+    if (prev !== "match-over" && clientPhase === "match-over" && lastRound) {
+      // Just entered match-over — show round result first.
+      setMatchOverReady(false);
+      setMatchOverCountdown(AUTO_ADVANCE_MS / 1000);
+
+      // Tick countdown then auto-advance.
+      let remaining = AUTO_ADVANCE_MS / 1000;
+      const interval = setInterval(() => {
+        remaining -= 1;
+        setMatchOverCountdown(Math.max(0, remaining));
+        if (remaining <= 0) {
+          clearInterval(interval);
+          setMatchOverReady(true);
+        }
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+
+    if (clientPhase !== "match-over") {
+      setMatchOverReady(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientPhase]);
+
+  // For playing phases (waiting/reveal/countdown/timing) we keep a fixed height
+  // so the full-screen timing button fills the container. For result/over phases
+  // we let content size the container.
+  const needsFixedHeight =
+    clientPhase === "waiting" ||
+    clientPhase === "reveal" ||
+    clientPhase === "countdown" ||
+    clientPhase === "timing";
+
   return (
     <div className="flex-1 flex flex-col items-center justify-start sm:justify-center px-4 py-4 sm:py-8 relative overflow-y-auto">
       <div className="relative w-full max-w-xl">
@@ -210,9 +256,14 @@ export function TimeoutGame({
           <span>First to {TARGET_SCORE} rounds</span>
         </div>
 
-        <div className="relative h-[clamp(200px,40vh,360px)] rounded-chunk border-[3px] border-black bg-ink-900 shadow-pop-lg overflow-hidden">
-          <div className="absolute inset-0 bg-dots opacity-40" />
-          <div className={cn("absolute inset-0 opacity-10", accent.bg)} />
+        <div
+          className={cn(
+            "relative rounded-chunk border-[3px] border-black bg-ink-900 shadow-pop-lg overflow-hidden",
+            needsFixedHeight ? "h-[clamp(200px,40vh,360px)]" : "min-h-[320px]",
+          )}
+        >
+          <div className="absolute inset-0 bg-dots opacity-40 pointer-events-none" />
+          <div className={cn("absolute inset-0 opacity-10 pointer-events-none", accent.bg)} />
 
           {clientPhase === "waiting" && (
             <div className="absolute inset-0 flex items-center justify-center text-bone-200/60 text-sm font-bold uppercase tracking-widest">
@@ -242,7 +293,11 @@ export function TimeoutGame({
             />
           )}
 
-          {clientPhase === "round-result" && lastRound && me && opp && (
+          {/* Round-result: shown when server phase is "round-result", OR when
+              match just ended and we're showing the winning-round result first. */}
+          {((clientPhase === "round-result") ||
+            (clientPhase === "match-over" && !matchOverReady)) &&
+            lastRound && me && opp && (
             <ResultStage
               log={lastRound}
               userId={userId}
@@ -253,12 +308,20 @@ export function TimeoutGame({
               oppWins={opp.score}
               youVoted={youVoted}
               oppVoted={oppVoted}
-              autoAdvanceSecondsLeft={autoAdvanceSecondsLeft}
-              onNext={onNextRound}
+              autoAdvanceSecondsLeft={
+                clientPhase === "round-result"
+                  ? autoAdvanceSecondsLeft
+                  : matchOverCountdown
+              }
+              onNext={
+                clientPhase === "round-result"
+                  ? onNextRound
+                  : () => setMatchOverReady(true)
+              }
             />
           )}
 
-          {clientPhase === "match-over" && me && (
+          {clientPhase === "match-over" && matchOverReady && me && (
             <MatchOverStage
               youWin={!!youWon}
               yourWins={me.score}
@@ -266,7 +329,6 @@ export function TimeoutGame({
               ratingDelta={data?.ratingDeltas?.[userId as string]}
               accentBg={accent.bg}
               onReset={onRematch}
-              onLobby={() => router.push(`/play/room/${room.code}`)}
               onMenu={async () => {
                 try { await leaveRoom(room._id); } catch { /* best effort */ }
                 router.push("/play");
@@ -412,7 +474,7 @@ function ResultStage({
   const winner = log.winnerUserId;
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 sm:px-6 py-4">
+    <div className="relative flex flex-col items-center justify-center text-center px-4 sm:px-6 py-6">
       <div className="label-cap">Round {log.round} · target {log.target.toFixed(2)}s</div>
 
       <div className="mt-3 grid grid-cols-2 gap-3 w-full max-w-md">
@@ -503,7 +565,7 @@ function RoundResultCard({
 }
 
 function MatchOverStage({
-  youWin, yourWins, oppWins, ratingDelta, accentBg, onReset, onLobby, onMenu,
+  youWin, yourWins, oppWins, ratingDelta, accentBg, onReset, onMenu,
 }: {
   youWin: boolean;
   yourWins: number;
@@ -511,12 +573,11 @@ function MatchOverStage({
   ratingDelta?: number;
   accentBg: string;
   onReset: () => void;
-  onLobby: () => void;
   onMenu: () => void;
 }) {
   const deltaSign = ratingDelta !== undefined && ratingDelta >= 0 ? "+" : "";
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+    <div className="relative flex flex-col items-center justify-center text-center px-6 py-8 gap-4">
       <div
         className={cn(
           "px-6 py-3 rounded-chunk border-[3px] border-black font-display text-xl sm:text-3xl shadow-pop-lg",
@@ -525,30 +586,27 @@ function MatchOverStage({
       >
         {youWin ? "You took the match" : "Opponent took the match"}
       </div>
-      <div className="mt-6 font-display text-5xl text-bone-50 tabular-nums">
+      <div className="font-display text-5xl text-bone-50 tabular-nums">
         {yourWins} <span className="text-bone-200/40">–</span> {oppWins}
       </div>
-      <div className="mt-2 text-[10px] font-bold uppercase tracking-widest text-bone-200/60">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-bone-200/60">
         Rounds won · first to {TARGET_SCORE}
       </div>
       {ratingDelta !== undefined && (
         <div className={cn(
-          "mt-3 font-display text-2xl tabular-nums",
+          "font-display text-2xl tabular-nums",
           ratingDelta >= 0 ? "text-lemon" : "text-coral",
         )}>
           {deltaSign}{ratingDelta.toFixed(3)}
           <span className="text-xs font-bold uppercase tracking-widest ml-1 text-bone-200/60">rating</span>
         </div>
       )}
-      <div className="mt-4 flex gap-3">
+      <div className="flex gap-3">
         <Placeholder label="trophy" size="lg" />
       </div>
-      <div className="mt-4 flex flex-col sm:flex-row flex-wrap items-center justify-center gap-2 w-full px-4">
+      <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-2 w-full px-4">
         <Button onClick={onReset} size="md" className="w-full sm:w-auto">
           Rematch
-        </Button>
-        <Button onClick={onLobby} size="md" variant="ghost" className="w-full sm:w-auto">
-          Back to room
         </Button>
         <Button onClick={onMenu} size="md" variant="ghost" className="w-full sm:w-auto">
           Main menu

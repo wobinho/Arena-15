@@ -36,15 +36,14 @@ type RoomView = {
   }>;
 };
 
-type PlayerState = {
+type MinefieldData = {
   openedSafe: number[];
   exploded: boolean;
   explodedAt?: number;
-};
-
-type MinefieldData = {
-  playerStates: Record<string, PlayerState>;
-  bombIndices?: number[]; // Revealed at round end
+  explodedBy?: Id<"users">;
+  currentTurnUserId: Id<"users">;
+  turnOrder: Id<"users">[];
+  bombIndices?: number[];
   roundWinnerId?: Id<"users">;
   continueVotes?: Id<"users">[];
   ratingDeltas?: Record<string, number>;
@@ -53,9 +52,8 @@ type MinefieldData = {
 type BoxState =
   | "unrevealed"
   | "safe"
-  | "bomb-hit"      // The bomb this player hit
-  | "bomb-revealed" // Other bombs shown at round end
-  | "opp-safe";     // Opponent's safe open (shown on opp grid)
+  | "bomb-hit"
+  | "bomb-revealed";
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -85,7 +83,6 @@ export function MinefieldGame({
     return () => clearInterval(id);
   }, []);
 
-  // Track boxes that are "animating" (shake on wrong click attempt, flash on open)
   const [flashIdx, setFlashIdx] = useState<number | null>(null);
   const pendingRef = useRef<Set<number>>(new Set());
 
@@ -99,9 +96,7 @@ export function MinefieldGame({
 
   const elapsed = now - phaseStartedAt;
 
-  const myState = data?.playerStates?.[userId as string];
-  const oppState = opp ? data?.playerStates?.[opp.userId as string] : undefined;
-
+  const isMyTurn = data?.currentTurnUserId === userId;
   const youVoted = !!data?.continueVotes?.includes(userId);
   const oppVoted = !!data?.continueVotes?.includes(
     opp?.userId ?? ("" as Id<"users">),
@@ -117,8 +112,9 @@ export function MinefieldGame({
   async function onOpen(idx: number) {
     if (phase !== "playing") return;
     if (!sessionToken) return;
-    if (myState?.exploded) return;
-    if (myState?.openedSafe?.includes(idx)) return;
+    if (!isMyTurn) return;
+    if (data?.exploded) return;
+    if (data?.openedSafe?.includes(idx)) return;
     if (pendingRef.current.has(idx)) return;
 
     pendingRef.current.add(idx);
@@ -154,21 +150,6 @@ export function MinefieldGame({
     } catch (e) {
       console.warn("rematch failed", e);
     }
-  }
-
-  // ─── Grid helpers ─────────────────────────────────────────────────────────
-
-  /** Compute per-cell display state for a given player. */
-  function getCellState(
-    idx: number,
-    ps: PlayerState | undefined,
-    bombIndices: number[] | undefined,
-  ): BoxState {
-    if (!ps) return "unrevealed";
-    if (ps.openedSafe.includes(idx)) return "safe";
-    if (ps.exploded && ps.explodedAt === idx) return "bomb-hit";
-    if (bombIndices?.includes(idx)) return "bomb-revealed";
-    return "unrevealed";
   }
 
   // ─── Render ──────────────────────────────────────────────────────────────────
@@ -221,10 +202,11 @@ export function MinefieldGame({
             </div>
           )}
 
-          {phase === "playing" && myState && (
+          {phase === "playing" && data && (
             <PlayingStage
-              myState={myState}
-              oppState={oppState}
+              data={data}
+              userId={userId}
+              isMyTurn={isMyTurn}
               flashIdx={flashIdx}
               myHandle={me?.handle ?? "you"}
               oppHandle={opp?.handle ?? "opponent"}
@@ -233,15 +215,14 @@ export function MinefieldGame({
             />
           )}
 
-          {phase === "round-result" && myState && (
+          {phase === "round-result" && data && (
             <RoundResultStage
-              myState={myState}
-              oppState={oppState}
-              bombIndices={data?.bombIndices}
+              data={data}
               iWonRound={iWonRound}
               oppWonRound={oppWonRound}
               myHandle={me?.handle ?? "you"}
               oppHandle={opp?.handle ?? "opponent"}
+              userId={userId}
               yourWins={me?.score ?? 0}
               oppWins={opp?.score ?? 0}
               youVoted={youVoted}
@@ -252,20 +233,17 @@ export function MinefieldGame({
             />
           )}
 
-          {phase === "match-over" && me && (
+          {phase === "match-over" && me && data && (
             <MatchOverStage
               youWin={(me.score ?? 0) > (opp?.score ?? 0)}
               yourWins={me.score ?? 0}
               oppWins={opp?.score ?? 0}
-              myState={myState}
-              oppState={oppState}
-              bombIndices={data?.bombIndices}
+              data={data}
               myHandle={me.handle}
               oppHandle={opp?.handle ?? "Opponent"}
               ratingDelta={data?.ratingDeltas?.[userId as string]}
               accent={accent}
               onReset={onRematch}
-              onLobby={() => router.push(`/play/room/${room.code}`)}
               onMenu={async () => {
                 try { await leaveRoom(room._id); } catch { /* best effort */ }
                 router.push("/play");
@@ -281,26 +259,27 @@ export function MinefieldGame({
 // ─── Playing stage ────────────────────────────────────────────────────────────
 
 function PlayingStage({
-  myState,
-  oppState,
+  data,
+  userId,
+  isMyTurn,
   flashIdx,
   myHandle,
   oppHandle,
   accent,
   onOpen,
 }: {
-  myState: PlayerState;
-  oppState: PlayerState | undefined;
+  data: MinefieldData;
+  userId: Id<"users">;
+  isMyTurn: boolean;
   flashIdx: number | null;
   myHandle: string;
   oppHandle: string;
   accent: (typeof ACCENT_CLASSES)[keyof typeof ACCENT_CLASSES];
   onOpen: (idx: number) => void;
 }) {
-  const myExploded = myState.exploded;
-  const oppExploded = oppState?.exploded ?? false;
-  const myOpened = myState.openedSafe.length;
-  const oppOpened = oppState?.openedSafe.length ?? 0;
+  const currentHandle = isMyTurn ? myHandle : oppHandle;
+  const safeOpened = data.openedSafe.length;
+  const safeRemaining = 22 - safeOpened;
 
   return (
     <div className="relative px-5 pt-5 pb-6">
@@ -309,66 +288,57 @@ function PlayingStage({
         <div>
           <div className="label-cap">Minefield</div>
           <div className={cn("font-display text-xl", accent.text)}>
-            3 bombs · 22 safe
+            3 bombs · {safeRemaining} safe left
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <StatusChip
-            label={`You · ${myOpened} opened`}
-            alive={!myExploded}
-            accentBg={accent.bg}
-          />
-          <StatusChip
-            label={`Opp · ${oppOpened} opened`}
-            alive={!oppExploded}
-            accentBg="bg-blue"
-          />
+        {/* Turn indicator chip */}
+        <div
+          className={cn(
+            "chip border-black font-bold text-xs",
+            isMyTurn ? cn(accent.bg, "text-black") : "bg-blue text-black",
+          )}
+        >
+          {isMyTurn ? "Your turn" : `@${currentHandle}'s turn`}
         </div>
       </div>
 
-      {/* Grid */}
+      {/* Turn banner */}
+      <div
+        className={cn(
+          "mb-4 w-full py-2 rounded-chunk border-[3px] border-black text-center font-display text-base",
+          isMyTurn
+            ? cn(accent.bg, "text-black")
+            : "bg-ink-700 text-bone-200/70",
+        )}
+      >
+        {isMyTurn
+          ? "👆 Your turn — pick a box!"
+          : `⏳ Waiting for @${oppHandle}…`}
+      </div>
+
+      {/* Shared grid */}
       <div className="mb-3">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-bone-200/50 mb-2 text-center">
-          Your grid — click to open
-        </div>
-        <MineGrid
-          playerState={myState}
+        <SharedMineGrid
+          openedSafe={data.openedSafe}
+          exploded={data.exploded}
+          explodedAt={data.explodedAt}
           bombIndices={undefined}
-          isInteractive={!myExploded}
+          isInteractive={isMyTurn && !data.exploded}
           flashIdx={flashIdx}
           accent={accent}
           onOpen={onOpen}
         />
       </div>
 
-      {/* Opponent status bar */}
-      <div className="mt-4 flex items-center justify-between px-3 py-2 rounded-chunk border-2 border-black bg-ink-800">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-bone-200/50">
-          @{oppHandle}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-bone-200/60">
-            {oppOpened} boxes opened
-          </div>
-          {oppExploded ? (
-            <span className="chip border-black bg-coral text-black text-[10px] font-bold">
-              💥 Exploded
-            </span>
-          ) : (
-            <span className="chip border-black bg-ink-700 text-bone-200/60 text-[10px] font-bold animate-pulse">
-              Still going…
-            </span>
-          )}
-        </div>
+      {/* Opened count */}
+      <div className="mt-3 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest text-bone-200/50">
+        <span>{safeOpened} / 22 boxes opened safely</span>
+        {data.exploded && (
+          <span className="chip border-black bg-coral text-black text-[10px] font-bold ml-2">
+            💥 Bomb hit!
+          </span>
+        )}
       </div>
-
-      {myExploded && (
-        <div className="mt-4 text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-chunk border-[3px] border-black bg-coral text-black font-display text-lg shadow-pop animate-bounce">
-            💥 You hit a bomb!
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -376,13 +346,12 @@ function PlayingStage({
 // ─── Round result stage ───────────────────────────────────────────────────────
 
 function RoundResultStage({
-  myState,
-  oppState,
-  bombIndices,
+  data,
   iWonRound,
   oppWonRound,
   myHandle,
   oppHandle,
+  userId,
   yourWins,
   oppWins,
   youVoted,
@@ -391,13 +360,12 @@ function RoundResultStage({
   accent,
   onNext,
 }: {
-  myState: PlayerState;
-  oppState: PlayerState | undefined;
-  bombIndices: number[] | undefined;
+  data: MinefieldData;
   iWonRound: boolean;
   oppWonRound: boolean;
   myHandle: string;
   oppHandle: string;
+  userId: Id<"users">;
   yourWins: number;
   oppWins: number;
   youVoted: boolean;
@@ -407,6 +375,8 @@ function RoundResultStage({
   onNext: () => void;
 }) {
   const isDraw = !iWonRound && !oppWonRound;
+  const iHitBomb = data.explodedBy === userId;
+  const oppHitBomb = data.exploded && !iHitBomb;
 
   return (
     <div className="relative px-5 pt-5 pb-6 flex flex-col items-center text-center">
@@ -425,34 +395,35 @@ function RoundResultStage({
       </div>
 
       {/* Explosion callout */}
-      {myState.exploded && (
+      {iHitBomb && (
         <div className="mb-3 flex items-center gap-2 px-4 py-2 rounded-chunk border-[3px] border-black bg-coral text-black">
-          <span className="font-display text-base">💥 You hit box #{(myState.explodedAt ?? 0) + 1}!</span>
+          <span className="font-display text-base">
+            💥 You hit box #{(data.explodedAt ?? 0) + 1}!
+          </span>
         </div>
       )}
-      {oppState?.exploded && !myState.exploded && (
+      {oppHitBomb && (
         <div className="mb-3 flex items-center gap-2 px-4 py-2 rounded-chunk border-[3px] border-black bg-blue text-black">
-          <span className="font-display text-base">💥 Opponent hit box #{(oppState.explodedAt ?? 0) + 1}!</span>
+          <span className="font-display text-base">
+            💥 @{oppHandle} hit box #{(data.explodedAt ?? 0) + 1}!
+          </span>
         </div>
       )}
 
-      {/* Side-by-side grids with bombs revealed */}
-      <div className="w-full grid grid-cols-2 gap-4 mb-4">
-        <GridReveal
-          label="You"
-          handle={`@${myHandle}`}
-          playerState={myState}
-          bombIndices={bombIndices}
-          won={iWonRound}
-          accentBg={accent.bg}
-        />
-        <GridReveal
-          label="Opp"
-          handle={`@${oppHandle}`}
-          playerState={oppState}
-          bombIndices={bombIndices}
-          won={oppWonRound}
-          accentBg="bg-blue"
+      {/* Revealed shared grid */}
+      <div className="w-full mb-4">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-bone-200/50 mb-2 text-center">
+          Board reveal — {data.openedSafe.length} safe · 3 bombs
+        </div>
+        <SharedMineGrid
+          openedSafe={data.openedSafe}
+          exploded={data.exploded}
+          explodedAt={data.explodedAt}
+          bombIndices={data.bombIndices}
+          isInteractive={false}
+          flashIdx={null}
+          accent={accent}
+          onOpen={() => {}}
         />
       </div>
 
@@ -486,29 +457,23 @@ function MatchOverStage({
   youWin,
   yourWins,
   oppWins,
-  myState,
-  oppState,
-  bombIndices,
+  data,
   myHandle,
   oppHandle,
   ratingDelta,
   accent,
   onReset,
-  onLobby,
   onMenu,
 }: {
   youWin: boolean;
   yourWins: number;
   oppWins: number;
-  myState: PlayerState | undefined;
-  oppState: PlayerState | undefined;
-  bombIndices: number[] | undefined;
+  data: MinefieldData;
   myHandle: string;
   oppHandle: string;
   ratingDelta?: number;
   accent: (typeof ACCENT_CLASSES)[keyof typeof ACCENT_CLASSES];
   onReset: () => void;
-  onLobby: () => void;
   onMenu: () => void;
 }) {
   const deltaSign = ratingDelta !== undefined && ratingDelta >= 0 ? "+" : "";
@@ -533,27 +498,22 @@ function MatchOverStage({
         Rounds won · first to {TARGET_SCORE}
       </div>
 
-      {/* Final grids */}
-      {(myState || oppState) && (
-        <div className="w-full grid grid-cols-2 gap-4 mt-1">
-          <GridReveal
-            label="You"
-            handle={`@${myHandle}`}
-            playerState={myState}
-            bombIndices={bombIndices}
-            won={youWin}
-            accentBg={accent.bg}
-          />
-          <GridReveal
-            label="Opp"
-            handle={`@${oppHandle}`}
-            playerState={oppState}
-            bombIndices={bombIndices}
-            won={!youWin}
-            accentBg="bg-blue"
-          />
+      {/* Final board */}
+      <div className="w-full mt-1">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-bone-200/50 mb-2 text-center">
+          Final board
         </div>
-      )}
+        <SharedMineGrid
+          openedSafe={data.openedSafe}
+          exploded={data.exploded}
+          explodedAt={data.explodedAt}
+          bombIndices={data.bombIndices}
+          isInteractive={false}
+          flashIdx={null}
+          accent={accent}
+          onOpen={() => {}}
+        />
+      </div>
 
       {ratingDelta !== undefined && (
         <div
@@ -573,9 +533,6 @@ function MatchOverStage({
         <Button onClick={onReset} size="md">
           Rematch
         </Button>
-        <Button onClick={onLobby} size="md" variant="ghost">
-          Back to room
-        </Button>
         <Button onClick={onMenu} size="md" variant="ghost">
           Main menu
         </Button>
@@ -584,18 +541,21 @@ function MatchOverStage({
   );
 }
 
-// ─── Grid components ──────────────────────────────────────────────────────────
+// ─── Shared grid ──────────────────────────────────────────────────────────────
 
-/** Interactive grid (playing phase — only shown for the local player). */
-function MineGrid({
-  playerState,
+function SharedMineGrid({
+  openedSafe,
+  exploded,
+  explodedAt,
   bombIndices,
   isInteractive,
   flashIdx,
   accent,
   onOpen,
 }: {
-  playerState: PlayerState;
+  openedSafe: number[];
+  exploded: boolean;
+  explodedAt?: number;
   bombIndices: number[] | undefined;
   isInteractive: boolean;
   flashIdx: number | null;
@@ -605,8 +565,8 @@ function MineGrid({
   return (
     <div className="grid grid-cols-5 gap-1.5">
       {Array.from({ length: GRID_SIZE }, (_, idx) => {
-        const isSafe = playerState.openedSafe.includes(idx);
-        const isBombHit = playerState.exploded && playerState.explodedAt === idx;
+        const isSafe = openedSafe.includes(idx);
+        const isBombHit = exploded && explodedAt === idx;
         const isBombRevealed = !isBombHit && bombIndices?.includes(idx);
         const isFlashing = flashIdx === idx;
 
@@ -629,71 +589,6 @@ function MineGrid({
           />
         );
       })}
-    </div>
-  );
-}
-
-/** Compact read-only grid for post-round reveal panels. */
-function GridReveal({
-  label,
-  handle,
-  playerState,
-  bombIndices,
-  won,
-  accentBg,
-}: {
-  label: string;
-  handle: string;
-  playerState: PlayerState | undefined;
-  bombIndices: number[] | undefined;
-  won: boolean;
-  accentBg: string;
-}) {
-  const openedSafe = playerState?.openedSafe ?? [];
-  const explodedAt = playerState?.explodedAt;
-  const exploded = playerState?.exploded ?? false;
-
-  return (
-    <div
-      className={cn(
-        "rounded-chunk border-[3px] border-black p-3 transition-all",
-        won ? cn(accentBg, "text-black -translate-y-[2px] shadow-pop") : "bg-ink-800",
-      )}
-    >
-      <div
-        className={cn(
-          "flex items-center justify-between mb-2",
-          won ? "text-black/70" : "text-bone-200/60",
-        )}
-      >
-        <div className="text-[10px] font-bold uppercase tracking-widest">
-          {label} {won ? "· WIN" : exploded ? "· 💥" : ""}
-        </div>
-        <div className="text-[9px] font-bold truncate max-w-[60px]">{handle}</div>
-      </div>
-      <div className="grid grid-cols-5 gap-[3px]">
-        {Array.from({ length: GRID_SIZE }, (_, idx) => {
-          const isSafe = openedSafe.includes(idx);
-          const isBombHit = exploded && explodedAt === idx;
-          const isBombRevealed = !isBombHit && bombIndices?.includes(idx);
-
-          return (
-            <MiniCell
-              key={idx}
-              state={
-                isBombHit
-                  ? "bomb-hit"
-                  : isBombRevealed
-                  ? "bomb-revealed"
-                  : isSafe
-                  ? "safe"
-                  : "unrevealed"
-              }
-              won={won}
-            />
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -742,58 +637,6 @@ function GridCell({
       {state === "bomb-hit" && <span>💣</span>}
       {state === "bomb-revealed" && <span className="text-xs opacity-70">💣</span>}
     </button>
-  );
-}
-
-function MiniCell({
-  state,
-  won,
-}: {
-  state: BoxState;
-  won: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "aspect-square rounded-[3px] border border-black/50 flex items-center justify-center text-[8px]",
-        state === "safe" &&
-          (won ? "bg-black/20" : "bg-ink-600 border-ink-500"),
-        state === "bomb-hit" && "bg-coral border-coral",
-        state === "bomb-revealed" && "bg-ink-700 border-coral/40",
-        state === "unrevealed" &&
-          (won ? "bg-black/10 border-black/20" : "bg-ink-800 border-black/30"),
-      )}
-    >
-      {(state === "bomb-hit" || state === "bomb-revealed") && (
-        <span>💣</span>
-      )}
-      {state === "safe" && (
-        <span className={won ? "text-black/50" : "text-bone-200/40"}>·</span>
-      )}
-    </div>
-  );
-}
-
-// ─── Status chip ──────────────────────────────────────────────────────────────
-
-function StatusChip({
-  label,
-  alive,
-  accentBg,
-}: {
-  label: string;
-  alive: boolean;
-  accentBg: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "chip border-black text-xs font-bold",
-        alive ? cn(accentBg, "text-black") : "bg-coral text-black",
-      )}
-    >
-      {alive ? label : `${label} · 💥`}
-    </span>
   );
 }
 

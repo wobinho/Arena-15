@@ -146,7 +146,7 @@ export function HighLowGame({
           <span>@{me?.handle ?? "you"} vs @{opp?.handle ?? "opponent"}</span>
         </div>
 
-        <div className="relative h-[clamp(260px,45vh,400px)] rounded-chunk border-[3px] border-black bg-ink-900 shadow-pop-lg overflow-hidden">
+        <div className="relative rounded-chunk border-[3px] border-black bg-ink-900 shadow-pop-lg overflow-hidden min-h-[300px]">
           <div className="absolute inset-0 bg-dots opacity-40" />
           <div className={cn("absolute inset-0 opacity-10", accent.bg)} />
 
@@ -189,7 +189,6 @@ export function HighLowGame({
               ratingDelta={data.ratingDeltas?.[userId as string]}
               accent={accent}
               onRematch={onRematch}
-              onLobby={() => router.push(`/play/room/${room.code}`)}
               onMenu={async () => {
                 try { await leaveRoom(room._id); } catch { /* best effort */ }
                 router.push("/play");
@@ -222,7 +221,7 @@ function SetupStage({
   accent: (typeof ACCENT_CLASSES)[keyof typeof ACCENT_CLASSES];
 }) {
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 gap-4">
+    <div className="relative flex flex-col items-center justify-center text-center px-6 gap-4 py-10 min-h-[300px]">
       <div className="label-cap">Pick your secret number</div>
       <div className={cn("font-display text-5xl sm:text-6xl", accent.text)}>1 – 100</div>
       {!mySecretSet ? (
@@ -288,7 +287,7 @@ function PlayingStage({
   const lastGuess = data.guesses.length > 0 ? data.guesses[data.guesses.length - 1] : null;
 
   return (
-    <div className="absolute inset-0 flex flex-col px-4 py-4 overflow-hidden">
+    <div className="relative flex flex-col px-4 py-4 min-h-[300px]">
       {/* Turn indicator */}
       <div className={cn(
         "text-center text-[11px] font-bold uppercase tracking-widest mb-3",
@@ -406,7 +405,6 @@ function MatchOverStage({
   ratingDelta,
   accent,
   onRematch,
-  onLobby,
   onMenu,
 }: {
   data: HighLowData;
@@ -416,7 +414,6 @@ function MatchOverStage({
   ratingDelta?: number;
   accent: (typeof ACCENT_CLASSES)[keyof typeof ACCENT_CLASSES];
   onRematch: () => void;
-  onLobby: () => void;
   onMenu: () => void;
 }) {
   const iWon = data.winnerUserId === userId;
@@ -427,7 +424,7 @@ function MatchOverStage({
   const deltaSign = ratingDelta !== undefined && ratingDelta >= 0 ? "+" : "";
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 gap-3">
+    <div className="relative flex flex-col items-center justify-center text-center px-6 gap-3 py-8">
       <div
         className={cn(
           "px-6 py-3 rounded-chunk border-[3px] border-black font-display text-xl sm:text-3xl shadow-pop-lg",
@@ -466,7 +463,6 @@ function MatchOverStage({
 
       <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-2 w-full px-2">
         <Button onClick={onRematch} size="md" className="w-full sm:w-auto">Rematch</Button>
-        <Button onClick={onLobby} size="md" variant="ghost" className="w-full sm:w-auto">Back to room</Button>
         <Button onClick={onMenu} size="md" variant="ghost" className="w-full sm:w-auto">Main menu</Button>
       </div>
     </div>

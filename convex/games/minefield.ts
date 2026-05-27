@@ -8,19 +8,13 @@ const BOMB_COUNT = 3; // 3 bombs hidden in the grid
 const SAFE_COUNT = GRID_SIZE - BOMB_COUNT; // 22 safe boxes
 
 // Phases:
-//  "playing"      – both players are simultaneously opening boxes
+//  "playing"      – players take turns opening shared boxes
 //  "round-result" – a player hit a bomb (or all safe boxes opened); result shown
 //  "match-over"   – someone reached TARGET_SCORE
 export type MinefieldPhase = "playing" | "round-result" | "match-over";
 
-export type PlayerState = {
-  openedSafe: number[]; // indices of safely-opened boxes
-  exploded: boolean;
-  explodedAt?: number; // grid index of the bomb that was hit
-};
-
 /**
- * Shape of matchState.data for Minefield.
+ * Shape of matchState.data for Minefield (shared-board, turn-based).
  *
  * IMPORTANT: bomb positions are intentionally ABSENT during the "playing" phase.
  * They live only in the server-side `minefieldSecrets` table and are revealed
@@ -28,7 +22,18 @@ export type PlayerState = {
  * "match-over"), so clients can show the full board reveal.
  */
 export type MinefieldData = {
-  playerStates: Record<string, PlayerState>; // userId → state
+  /** All safely-opened box indices (shared between both players). */
+  openedSafe: number[];
+  /** Whether the current round has ended by a bomb hit. */
+  exploded: boolean;
+  /** Grid index of the bomb that was hit. */
+  explodedAt?: number;
+  /** UserId of the player who hit the bomb. */
+  explodedBy?: Id<"users">;
+  /** The player whose turn it is to open a box. */
+  currentTurnUserId: Id<"users">;
+  /** Turn rotation order (rotated each round so the loser goes first). */
+  turnOrder: Id<"users">[];
   /** Populated at round end — safe to expose because bombs are already triggered. */
   bombIndices?: number[];
   /** The winner of the most recent round (undefined = draw). */
@@ -41,21 +46,11 @@ export type MinefieldAction = { type: "open"; index: number };
 
 // ─── Bomb generation ──────────────────────────────────────────────────────────
 
-/**
- * Fisher-Yates shuffle using crypto.getRandomValues() → pick the first
- * BOMB_COUNT indices.
- *
- * We use the Web Crypto API (available in Convex's default V8 runtime) instead
- * of Math.random() so that bomb positions cannot be predicted by an attacker
- * who reverse-engineers the PRNG seed.
- */
 function generateBombs(): number[] {
   const indices = Array.from({ length: GRID_SIZE }, (_, i) => i);
-  // Generate one Uint32 per position so we only call getRandomValues once.
   const randomBuf = new Uint32Array(GRID_SIZE);
   crypto.getRandomValues(randomBuf);
   for (let i = GRID_SIZE - 1; i > 0; i--) {
-    // randomBuf[i] % (i + 1) has negligible modulo bias for GRID_SIZE = 25.
     const j = randomBuf[i] % (i + 1);
     [indices[i], indices[j]] = [indices[j], indices[i]];
   }
@@ -67,27 +62,44 @@ function generateBombs(): number[] {
 export function initialMatchData(
   playerIds: Id<"users">[],
 ): { phase: string; data: MinefieldData } {
-  const playerStates: Record<string, PlayerState> = {};
-  for (const id of playerIds) {
-    playerStates[id as string] = { openedSafe: [], exploded: false };
-  }
+  // Randomly pick who goes first using crypto for fairness.
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  const startIdx = buf[0] % playerIds.length;
+  const turnOrder = [
+    ...playerIds.slice(startIdx),
+    ...playerIds.slice(0, startIdx),
+  ] as Id<"users">[];
+
   return {
     phase: "playing" satisfies MinefieldPhase,
-    data: { playerStates },
+    data: {
+      openedSafe: [],
+      exploded: false,
+      currentTurnUserId: turnOrder[0],
+      turnOrder,
+    },
   };
 }
 
 export function nextRoundData(
-  _state: Doc<"matchState">,
+  state: Doc<"matchState">,
   players: Doc<"roomPlayers">[],
 ): { phase: string; data: MinefieldData } {
-  const playerStates: Record<string, PlayerState> = {};
-  for (const p of players) {
-    playerStates[p.userId as string] = { openedSafe: [], exploded: false };
-  }
+  // Rotate turn order so the previous first player goes last (loser leads next round).
+  const prevData = state.data as MinefieldData;
+  const prevOrder: Id<"users">[] =
+    prevData.turnOrder ?? players.map((p) => p.userId);
+  const rotated: Id<"users">[] = [...prevOrder.slice(1), prevOrder[0]];
+
   return {
     phase: "playing" satisfies MinefieldPhase,
-    data: { playerStates },
+    data: {
+      openedSafe: [],
+      exploded: false,
+      currentTurnUserId: rotated[0],
+      turnOrder: rotated,
+    },
   };
 }
 
@@ -117,17 +129,16 @@ export async function submit(
     throw new Error("Invalid box index");
   }
 
-  const myState = data.playerStates[userId as string];
-  if (!myState) throw new Error("Player state not found");
+  // Only the player whose turn it is can open a box.
+  if (data.currentTurnUserId !== userId) {
+    return { nextPhase: phase, nextData: data };
+  }
 
-  // Idempotent: ignore if player already exploded or already opened this box safely
-  if (myState.exploded) return { nextPhase: phase, nextData: data };
-  if (myState.openedSafe.includes(idx)) return { nextPhase: phase, nextData: data };
+  // Idempotent guards
+  if (data.exploded) return { nextPhase: phase, nextData: data };
+  if (data.openedSafe.includes(idx)) return { nextPhase: phase, nextData: data };
 
   // ── Get or lazily generate bomb positions ─────────────────────────────────
-  // Convex mutations are serialised transactions, so even if two players
-  // open their first box simultaneously, only one mutation will insert the
-  // secret — the second will find the row already there.
   const existingSecret = await ctx.db
     .query("minefieldSecrets")
     .withIndex("by_room_round", (q) =>
@@ -149,53 +160,41 @@ export async function submit(
 
   // ── Apply the open ────────────────────────────────────────────────────────
   const isBomb = bombIndices.includes(idx);
-  const newPlayerStates: Record<string, PlayerState> = { ...data.playerStates };
 
   if (isBomb) {
-    newPlayerStates[userId as string] = {
-      ...myState,
+    // The player who hit the bomb loses; the other player wins.
+    const newData: MinefieldData = {
+      ...data,
       exploded: true,
       explodedAt: idx,
+      explodedBy: userId,
     };
-  } else {
-    const newOpenedSafe = [...myState.openedSafe, idx];
-    newPlayerStates[userId as string] = {
-      ...myState,
-      openedSafe: newOpenedSafe,
-    };
-
-    // Edge-case: player opened every safe box — they win the round
-    if (newOpenedSafe.length >= SAFE_COUNT) {
-      return resolveRound(ctx, state, players, newPlayerStates, bombIndices, userId);
-    }
+    const survivor = players.find((p) => p.userId !== userId);
+    return resolveRound(ctx, state, players, newData, bombIndices, survivor?.userId);
   }
 
-  // ── Check if anyone has exploded ──────────────────────────────────────────
-  const anyExploded = players.some(
-    (p) => newPlayerStates[p.userId as string]?.exploded,
-  );
+  // Safe — add to shared list and switch turns.
+  const newOpenedSafe = [...data.openedSafe, idx];
 
-  if (!anyExploded) {
-    // Round still ongoing
-    return {
-      nextPhase: "playing",
-      nextData: { ...data, playerStates: newPlayerStates },
-    };
+  const currentIdx = data.turnOrder.findIndex((id) => id === data.currentTurnUserId);
+  const nextIdx = (currentIdx + 1) % data.turnOrder.length;
+  const nextTurnUserId = data.turnOrder[nextIdx];
+
+  const newData: MinefieldData = {
+    ...data,
+    openedSafe: newOpenedSafe,
+    currentTurnUserId: nextTurnUserId,
+  };
+
+  // Edge-case: every safe box opened — current player wins by opening the last one.
+  if (newOpenedSafe.length >= SAFE_COUNT) {
+    return resolveRound(ctx, state, players, newData, bombIndices, userId);
   }
 
-  // Survivor wins; if both exploded simultaneously it's a draw (undefined)
-  const survivor = players.find(
-    (p) => !newPlayerStates[p.userId as string]?.exploded,
-  );
-
-  return resolveRound(
-    ctx,
-    state,
-    players,
-    newPlayerStates,
-    bombIndices,
-    survivor?.userId,
-  );
+  return {
+    nextPhase: "playing",
+    nextData: newData,
+  };
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -204,7 +203,7 @@ async function resolveRound(
   ctx: MutationCtx,
   state: Doc<"matchState">,
   players: Doc<"roomPlayers">[],
-  newPlayerStates: Record<string, PlayerState>,
+  newData: MinefieldData,
   bombIndices: number[],
   roundWinnerId: Id<"users"> | undefined,
 ): Promise<{
@@ -213,7 +212,6 @@ async function resolveRound(
   roundResult?: { winnerUserId?: Id<"users">; payload: unknown };
   matchOver?: boolean;
 }> {
-  // Update per-player DB scores and streaks
   const newScores: Record<string, number> = {};
   for (const p of players) {
     const isWinner = roundWinnerId === p.userId;
@@ -227,7 +225,6 @@ async function resolveRound(
 
   const matchOver = Object.values(newScores).some((s) => s >= TARGET_SCORE);
 
-  // When the match is over, find the overall winner (highest round-win count)
   const overallWinnerEntry = matchOver
     ? Object.entries(newScores).reduce<[string, number] | null>(
         (best, cur) => (!best || cur[1] > best[1] ? cur : best),
@@ -238,18 +235,23 @@ async function resolveRound(
     ? (overallWinnerEntry[0] as Id<"users">)
     : undefined;
 
+  const finalData: MinefieldData = {
+    ...newData,
+    bombIndices,
+    roundWinnerId,
+  };
+
   return {
     nextPhase: matchOver ? "match-over" : "round-result",
-    nextData: {
-      playerStates: newPlayerStates,
-      bombIndices, // Reveal bombs now that the round is over
-      roundWinnerId,
-    },
+    nextData: finalData,
     roundResult: {
       winnerUserId: matchOver ? overallWinnerUserId : roundWinnerId,
       payload: {
         roundWinnerId: roundWinnerId ?? null,
-        playerStates: newPlayerStates,
+        openedSafe: newData.openedSafe,
+        exploded: newData.exploded,
+        explodedAt: newData.explodedAt,
+        explodedBy: newData.explodedBy,
         bombIndices,
       },
     },
