@@ -295,7 +295,15 @@ export const signOut = mutation({
       .query("sessions")
       .withIndex("by_token", (q) => q.eq("token", sessionToken))
       .unique();
-    if (session) await ctx.db.delete(session._id);
+    if (!session) return null;
+
+    const user = await ctx.db.get(session.userId);
+    await ctx.db.delete(session._id);
+
+    // Delete guest account on sign out (session end).
+    if (user && user.isGuest) {
+      await ctx.db.delete(user._id);
+    }
     return null;
   },
 });
