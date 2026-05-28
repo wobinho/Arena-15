@@ -12,6 +12,7 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 // ─── Constants (mirror server) ────────────────────────────────────────────────
 
+const PREGAME_DURATION_MS = 5_000;
 const GAME_DURATION_MS = 30_000;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -88,12 +89,18 @@ export function SpotlightGame({
 
   const phase = (matchState?.phase ?? "waiting") as
     | "waiting"
+    | "pregame"
     | "playing"
     | "match-over";
   const phaseStartedAt = matchState?.phaseStartedAt ?? now;
   const data = (matchState?.data as SpotlightData | undefined) ?? null;
 
   const elapsed = now - phaseStartedAt;
+
+  // Pregame countdown (5 → 1)
+  const pregameTimeLeft = Math.max(0, PREGAME_DURATION_MS - elapsed);
+  const pregameSecsLeft = Math.ceil(pregameTimeLeft / 1000);
+
   const timeLeft = Math.max(0, GAME_DURATION_MS - elapsed);
   const secsLeft = Math.ceil(timeLeft / 1000);
   const timerDanger = secsLeft <= 5 && secsLeft > 0;
@@ -175,20 +182,30 @@ export function SpotlightGame({
           />
         </div>
 
-        {/* Timer bar */}
-        <div className="h-2 bg-ink-700 border-2 border-black rounded-full overflow-hidden">
-          <div
-            className={cn(
-              "h-full transition-none",
-              timerDanger ? "bg-coral" : "bg-lime",
-            )}
-            style={{ width: `${(timeLeft / GAME_DURATION_MS) * 100}%` }}
-          />
-        </div>
+        {/* Timer bar — only visible during the playing phase */}
+        {phase === "playing" && (
+          <div className="h-2 bg-ink-700 border-2 border-black rounded-full overflow-hidden">
+            <div
+              className={cn(
+                "h-full transition-none",
+                timerDanger ? "bg-coral" : "bg-lime",
+              )}
+              style={{ width: `${(timeLeft / GAME_DURATION_MS) * 100}%` }}
+            />
+          </div>
+        )}
+        {/* Placeholder bar keeps height consistent during pregame/waiting */}
+        {phase !== "playing" && phase !== "match-over" && (
+          <div className="h-2 bg-ink-700 border-2 border-black rounded-full overflow-hidden" />
+        )}
 
         {/* Main arena */}
         <div className="relative rounded-chunk border-[3px] border-black overflow-hidden shadow-pop-lg">
           {phase === "waiting" && <WaitingStage />}
+
+          {phase === "pregame" && (
+            <PregameStage secsLeft={pregameSecsLeft} />
+          )}
 
           {phase === "playing" && (
             <PlayingStage
@@ -226,11 +243,37 @@ export function SpotlightGame({
         </div>
 
         {/* Round label */}
-        {phase === "playing" && (
+        {(phase === "pregame" || phase === "playing") && (
           <div className="text-center text-[10px] font-bold uppercase tracking-widest text-bone-200/50">
             30-second match · highest score wins
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Pregame countdown stage ──────────────────────────────────────────────────
+
+function PregameStage({ secsLeft }: { secsLeft: number }) {
+  return (
+    <div className="relative flex flex-col items-center justify-center min-h-[clamp(220px,38vh,400px)] bg-ink-900 select-none">
+      <div className="absolute inset-0 bg-dots opacity-25 pointer-events-none" />
+      <div className="relative z-10 flex flex-col items-center gap-3">
+        <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-bone-200/50">
+          Get ready
+        </div>
+        <div
+          className={cn(
+            "font-display leading-none tabular-nums transition-all duration-200",
+            secsLeft <= 1 ? "text-lime text-9xl sm:text-[10rem]" : "text-bone-50 text-8xl sm:text-9xl",
+          )}
+        >
+          {secsLeft > 0 ? secsLeft : "GO!"}
+        </div>
+        <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-bone-200/40">
+          match starts soon
+        </div>
       </div>
     </div>
   );

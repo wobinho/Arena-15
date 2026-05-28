@@ -42,6 +42,11 @@ async function loadRoomView(
   const playerViews = await Promise.all(
     players.map(async (p) => {
       const user = await ctx.db.get(p.userId);
+      // Prefer per-game rating so room lobby reflects live rating changes after matches.
+      const gameRating = await ctx.db
+        .query("userGameRatings")
+        .withIndex("by_user_game", (q) => q.eq("userId", p.userId).eq("gameId", room.gameId))
+        .unique();
       return {
         _id: p._id,
         userId: p.userId,
@@ -52,7 +57,7 @@ async function loadRoomView(
         seatIndex: p.seatIndex,
         score: p.score,
         streak: p.streak,
-        rating: user?.rating ?? DEFAULT_RATING,
+        rating: gameRating?.rating ?? user?.rating ?? DEFAULT_RATING,
       };
     }),
   );

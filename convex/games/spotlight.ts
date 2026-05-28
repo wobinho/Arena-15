@@ -3,10 +3,11 @@ import { MutationCtx } from "../_generated/server";
 
 // ─── Phase types ──────────────────────────────────────────────────────────────
 
-export type SpotlightPhase = "playing" | "match-over";
+export type SpotlightPhase = "pregame" | "playing" | "match-over";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+export const PREGAME_TIMEOUT_MS = 5_000; // 5-second countdown before the match
 export const GAME_DURATION_MS = 30_000; // 30-second match
 const MIN_ZONE_MS = 2_000;
 const MAX_ZONE_MS = 5_000;
@@ -78,9 +79,22 @@ export function initialMatchData(
     scores[id as string] = 0;
   }
 
+  // Start in pregame; zones are pre-generated so both players have the same schedule.
   return {
-    phase: "playing" satisfies SpotlightPhase,
+    phase: "pregame" satisfies SpotlightPhase,
     data: { zones: generateZones(), scores },
+  };
+}
+
+/** Called by autoPregameTimeout after PREGAME_TIMEOUT_MS. Transitions to the playing phase. */
+export async function onPregameTimeout(
+  _ctx: MutationCtx,
+  state: Doc<"matchState">,
+  _players: Doc<"roomPlayers">[],
+): Promise<{ nextPhase: string; nextData: SpotlightData } | null> {
+  return {
+    nextPhase: "playing" satisfies SpotlightPhase,
+    nextData: state.data as SpotlightData,
   };
 }
 
@@ -195,5 +209,5 @@ export async function onTimeout(
   };
 }
 
-// Exported so match.ts can schedule the playing-phase timeout.
+// Exported so match.ts can schedule phase timeouts.
 export const PLAYING_TIMEOUT_MS = GAME_DURATION_MS;

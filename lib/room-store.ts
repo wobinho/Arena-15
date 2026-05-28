@@ -48,6 +48,15 @@ export function useLeaveRoom() {
   };
 }
 
+export function useForfeitMatch() {
+  const forfeit = useMutation(api.match.forfeit);
+  const { sessionToken } = useAuth();
+  return async (roomId: Id<"rooms">) => {
+    if (!sessionToken) return;
+    return await forfeit({ sessionToken, roomId });
+  };
+}
+
 export function useChangeGame() {
   const change = useMutation(api.rooms.changeGame);
   const { sessionToken } = useAuth();

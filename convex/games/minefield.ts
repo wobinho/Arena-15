@@ -129,6 +129,30 @@ export async function submit(
     throw new Error("Invalid box index");
   }
 
+  // Migration: handle old-format matchState data (pre-turn-based update).
+  // Old format had `playerStates` per player instead of a shared openedSafe array.
+  if (!data.currentTurnUserId || !data.openedSafe) {
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    const startIdx = buf[0] % players.length;
+    const turnOrder = [
+      players[startIdx % players.length].userId,
+      players[(startIdx + 1) % players.length].userId,
+    ] as Id<"users">[];
+    const migratedData: MinefieldData = {
+      openedSafe: [],
+      exploded: false,
+      currentTurnUserId: turnOrder[0],
+      turnOrder,
+    };
+    // Only the newly-assigned first player's action proceeds; others are silently dropped.
+    if (migratedData.currentTurnUserId !== userId) {
+      return { nextPhase: phase, nextData: migratedData };
+    }
+    // Allow opening to fall through with migrated data as the base state.
+    Object.assign(data, migratedData);
+  }
+
   // Only the player whose turn it is can open a box.
   if (data.currentTurnUserId !== userId) {
     return { nextPhase: phase, nextData: data };

@@ -38,6 +38,15 @@ export default function MatchPage() {
     }
   }, [room, router]);
 
+  // If I forfeited, navigate back to the room lobby.
+  useEffect(() => {
+    if (!user || !matchState) return;
+    const data = matchState.data as Record<string, unknown> | undefined;
+    if (data?.forfeit === true && data?.forfeitedBy === user.id) {
+      router.replace(`/play/room/${code}`);
+    }
+  }, [matchState, user, router, code]);
+
   if (!hydrated || !user || room === undefined) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -48,7 +57,7 @@ export default function MatchPage() {
   if (room === null) return null;
 
   return (
-    <GameShell room={room}>
+    <GameShell room={room} matchState={matchState ?? null}>
       {room.gameId === "timeout" && (
         <TimeoutGame room={room} matchState={matchState ?? null} userId={user.id} />
       )}

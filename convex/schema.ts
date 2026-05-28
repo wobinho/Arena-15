@@ -15,6 +15,7 @@ export default defineSchema({
     matchesPlayed: v.number(),
     wins: v.optional(v.number()),
     rating: v.optional(v.number()),
+    isAdmin: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_handle_lower", ["handleLower"])

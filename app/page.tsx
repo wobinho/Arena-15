@@ -16,16 +16,6 @@ export default function HomePage() {
         <div className="absolute top-12 right-20 w-20 h-20 bg-cyan border-[3px] border-black rounded-full shadow-pop animate-float hidden md:block" />
 
         <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 sm:pt-20 pb-10 sm:pb-24">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 border-2 border-black bg-bone-50 rounded-full">
-            <span className="relative flex w-2 h-2">
-              <span className="absolute inset-0 rounded-full bg-magenta animate-pulse-ring" />
-              <span className="w-2 h-2 rounded-full bg-magenta" />
-            </span>
-            <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-black">
-              247 friends playing right now
-            </span>
-          </div>
-
           <h1 className="mt-4 sm:mt-6 font-display text-[2.8rem] sm:text-7xl lg:text-8xl leading-[0.92] text-bone-50">
             ONE V ONE.<br />
             <span className="inline-block px-2 -rotate-2 bg-lemon text-black border-[3px] border-black rounded-chunk shadow-pop-lg">
@@ -39,12 +29,14 @@ export default function HomePage() {
           </p>
 
           <div className="mt-6 sm:mt-8 flex flex-wrap gap-2 sm:gap-3">
-            <Link href="/play">
-              <Button size="lg">Quick match</Button>
-            </Link>
             <Link href="/play?mode=room">
               <Button size="lg" variant="cyan">
                 Create a room
+              </Button>
+            </Link>
+            <Link href="/play?mode=join">
+              <Button size="lg" variant="lime">
+                Join room
               </Button>
             </Link>
             <Link href="/leaderboard/timeout">
@@ -87,10 +79,7 @@ export default function HomePage() {
               Pick your <span className="text-lemon">poison.</span>
             </h2>
           </div>
-          <p className="text-sm text-bone-200/60 font-semibold max-w-md">
-            New games drop every season. Tap one to read the rules, see the leaderboard,
-            or jump straight into matchmaking.
-          </p>
+          <div />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
@@ -104,7 +93,7 @@ export default function HomePage() {
             </div>
             <div className="font-display text-2xl text-bone-50">More games soon</div>
             <p className="mt-2 text-sm text-bone-200/60 font-semibold max-w-xs">
-              Got an idea for a 1v1 mini game? We're shipping a new one every other Friday.
+              Got an idea for a 1v1 mini game?
             </p>
             <Link
               href="/about"

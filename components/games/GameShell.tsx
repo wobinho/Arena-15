@@ -1,12 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useLeaveRoom } from "@/lib/room-store";
+import { useForfeitMatch } from "@/lib/room-store";
 import { getGame, ACCENT_CLASSES, type GameId } from "@/lib/games";
 import { Placeholder } from "@/components/ui/Placeholder";
+import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { getRatingTier, TIER_STYLES } from "@/lib/leaderboard";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { useAuth } from "@/lib/auth-store";
 
 const ACCENT_GLOW: Record<string, string> = {
   blue: "from-blue/25",
@@ -26,24 +30,84 @@ export type GameShellRoom = {
 
 export function GameShell({
   room,
+  matchState,
   children,
 }: {
   room: GameShellRoom;
+  matchState?: { data?: unknown } | null;
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const leaveRoom = useLeaveRoom();
+  const forfeitMatch = useForfeitMatch();
+  const rematchMutation = useMutation(api.match.rematch);
+  const { sessionToken, user } = useAuth();
   const game = getGame(room.gameId as GameId);
   if (!game) return null;
   const a = ACCENT_CLASSES[game.accent];
 
+  const data = matchState?.data as Record<string, unknown> | undefined;
+  const isForfeit = data?.forfeit === true;
+  const forfeitedBy = data?.forfeitedBy as string | undefined;
+  const iOpponentForfeited = isForfeit && forfeitedBy && forfeitedBy !== user?.id;
+
   async function onForfeit() {
     try {
-      await leaveRoom(room._id);
+      await forfeitMatch(room._id);
     } catch {
       // best effort
     }
-    router.push("/play");
+    router.push(`/play/room/${room.code}`);
+  }
+
+  async function onRematch() {
+    if (!sessionToken) return;
+    try {
+      await rematchMutation({ sessionToken, roomId: room._id });
+    } catch {
+      // best effort
+    }
+  }
+
+  // When opponent forfeits, show a takeover overlay on their game screen.
+  if (iOpponentForfeited) {
+    const ratingDeltas = data?.ratingDeltas as Record<string, number> | undefined;
+    const myDelta = user?.id ? ratingDeltas?.[user.id as string] : undefined;
+
+    return (
+      <div className={cn("flex-1 flex flex-col w-full relative")}>
+        <div
+          aria-hidden
+          className={cn(
+            "pointer-events-none fixed inset-0 -z-0 bg-gradient-to-b to-transparent opacity-60",
+            ACCENT_GLOW[game.accent] ?? "from-lemon/20",
+          )}
+        />
+        <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8 text-center">
+          <div className="border-[3px] border-black rounded-chunk bg-ink-800 p-8 sm:p-12 shadow-pop-lg max-w-md w-full animate-wobble-in">
+            <div className="w-20 h-20 mx-auto bg-lime border-[3px] border-black rounded-chunk shadow-pop flex items-center justify-center mb-4">
+              <span className="font-display text-4xl text-black">W</span>
+            </div>
+            <div className="font-display text-3xl sm:text-4xl text-bone-50 mb-2">You win!</div>
+            <p className="text-bone-200/70 font-semibold text-sm mb-4">
+              Your opponent forfeited the match.
+            </p>
+            {myDelta !== undefined && (
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-lime border-2 border-black rounded-chunk shadow-pop-sm mb-6">
+                <span className="font-display text-lg text-black">
+                  +{myDelta.toFixed(3)} rating
+                </span>
+              </div>
+            )}
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Button onClick={onRematch} variant="lime" size="lg">Rematch</Button>
+              <Button onClick={() => router.push(`/play/room/${room.code}`)} variant="ghost" size="lg">
+                Back to lobby
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

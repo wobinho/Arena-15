@@ -40,6 +40,14 @@ type GameModule = {
     roundResult?: { winnerUserId?: Id<"users">; payload: unknown };
     matchOver?: boolean;
   } | null>;
+  /** Optional: called after the pregame countdown ends; transitions to playing. */
+  onPregameTimeout?: (
+    ctx: MutationCtx,
+    state: Doc<"matchState">,
+    players: Doc<"roomPlayers">[],
+  ) => Promise<{ nextPhase: string; nextData: unknown } | null>;
+  /** If set, the "pregame" phase transitions to playing after this many ms. */
+  pregameTimeoutMs?: number;
   /** If set, the "picking" phase auto-resolves after this many ms. */
   pickingTimeoutMs?: number;
   /** If set, the "playing" phase auto-resolves after this many ms. */
@@ -51,7 +59,11 @@ const GAMES: Record<string, GameModule> = {
   "high-low": HighLow,
   "number-trap": { ...NumberTrap, pickingTimeoutMs: NumberTrap.PICK_DURATION_MS },
   safecracker: Safecracker,
-  spotlight: { ...Spotlight, playingTimeoutMs: Spotlight.PLAYING_TIMEOUT_MS },
+  spotlight: {
+    ...Spotlight,
+    pregameTimeoutMs: Spotlight.PREGAME_TIMEOUT_MS,
+    playingTimeoutMs: Spotlight.PLAYING_TIMEOUT_MS,
+  },
   minefield: Minefield,
 };
 
@@ -178,6 +190,34 @@ async function finalizeMatchStats(
   return deltas;
 }
 
+/** Delete all minefieldSecrets for a room (called on new match start and rematch). */
+async function cleanupMinefieldSecrets(ctx: MutationCtx, roomId: Id<"rooms">) {
+  const secrets = await ctx.db
+    .query("minefieldSecrets")
+    .withIndex("by_room_round", (q) => q.eq("roomId", roomId))
+    .take(20);
+  for (const s of secrets) {
+    await ctx.db.delete(s._id);
+  }
+}
+
+/** Schedule a pregame countdown for games that have one (e.g. Spotlight). */
+async function maybeSchedulePregameTimeout(
+  ctx: MutationCtx,
+  gameId: string,
+  roomId: Id<"rooms">,
+  round: number,
+  phase: string,
+) {
+  const mod = GAMES[gameId];
+  if (!mod?.pregameTimeoutMs || phase !== "pregame") return;
+  await ctx.scheduler.runAfter(
+    mod.pregameTimeoutMs + 500,
+    internal.match.autoPregameTimeout,
+    { roomId, round },
+  );
+}
+
 /** Schedule a picking-phase timeout for games that have one (e.g. Number Trap). */
 async function maybeSchedulePickingTimeout(
   ctx: MutationCtx,
@@ -251,6 +291,10 @@ export async function startMatch(ctx: MutationCtx, roomId: Id<"rooms">) {
     await ctx.db.patch(p._id, { score: 0, streak: 0, ready: false });
   }
 
+  // Clean up minefield secrets from any previous match in this room.
+  await cleanupMinefieldSecrets(ctx, roomId);
+
+  await maybeSchedulePregameTimeout(ctx, room.gameId, roomId, 1, initial.phase);
   await maybeSchedulePickingTimeout(ctx, room.gameId, roomId, 1, initial.phase);
   await maybeSchedulePlayingTimeout(ctx, room.gameId, roomId, 1, initial.phase);
 }
@@ -418,6 +462,41 @@ export const autoNextRound = internalMutation({
   },
 });
 
+export const autoPregameTimeout = internalMutation({
+  args: { roomId: v.id("rooms"), round: v.number() },
+  handler: async (ctx, { roomId, round }) => {
+    const state = await ctx.db
+      .query("matchState")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .unique();
+    if (!state || state.phase !== "pregame" || state.round !== round) return null;
+
+    const room = await ctx.db.get(roomId);
+    if (!room || room.status !== "in-game") return null;
+
+    const players = await ctx.db
+      .query("roomPlayers")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .collect();
+
+    const mod = getGameModule(state.gameId);
+    if (!mod.onPregameTimeout) return null;
+
+    const result = await mod.onPregameTimeout(ctx, state, players);
+    if (!result) return null;
+
+    await ctx.db.patch(state._id, {
+      phase: result.nextPhase,
+      phaseStartedAt: Date.now(),
+      data: result.nextData,
+    });
+
+    // After pregame ends, schedule the playing-phase timeout (e.g. for Spotlight).
+    await maybeSchedulePlayingTimeout(ctx, state.gameId, roomId, round, result.nextPhase);
+    return null;
+  },
+});
+
 export const autoPickingTimeout = internalMutation({
   args: { roomId: v.id("rooms"), round: v.number() },
   handler: async (ctx, { roomId, round }) => {
@@ -537,6 +616,82 @@ export const autoPlayingTimeout = internalMutation({
   },
 });
 
+export const forfeit = mutation({
+  args: { sessionToken: v.string(), roomId: v.id("rooms") },
+  handler: async (ctx, { sessionToken, roomId }) => {
+    const user = await userFromSession(ctx, sessionToken);
+    if (!user) throw new Error("Not signed in");
+
+    const room = await ctx.db.get(roomId);
+    if (!room || room.status !== "in-game") return null;
+
+    const players = await ctx.db
+      .query("roomPlayers")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .collect();
+    if (!players.some((p) => p.userId === user._id)) throw new Error("Not in this match");
+
+    const forfeiter = players.find((p) => p.userId === user._id)!;
+    const winner = players.find((p) => p.userId !== user._id);
+
+    // Mark room finished with forfeit data.
+    await ctx.db.patch(roomId, { status: "finished" });
+
+    const state = await ctx.db
+      .query("matchState")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .unique();
+
+    // Apply rating delta for forfeit (same formula as a normal loss).
+    let ratingDeltas: Record<string, number> = {};
+    if (winner && !user.isGuest) {
+      const winnerUser = await ctx.db.get(winner.userId);
+      if (winnerUser && !winnerUser.isGuest) {
+        const { gameId } = room;
+        const gr0 = await getOrCreateGameRating(ctx, winnerUser._id, gameId);
+        const gr1 = await getOrCreateGameRating(ctx, user._id, gameId);
+
+        const factor =
+          gameId === "safecracker" ? 0.5 :
+          gameId === "number-trap" ? 0.25 :
+          gameId === "high-low" ? 0.2 :
+          gameId === "minefield" ? 0.3 :
+          gameId === "spotlight" ? 0.15 : 0.15;
+        const delta = Math.round(factor * (gr1.rating / Math.max(0.01, gr0.rating)) * 1000) / 1000;
+
+        await ctx.db.patch(gr0._id, { rating: gr0.rating + delta, matchesPlayed: gr0.matchesPlayed + 1, wins: gr0.wins + 1 });
+        await ctx.db.patch(gr1._id, { rating: Math.max(0.01, gr1.rating - delta), matchesPlayed: gr1.matchesPlayed + 1 });
+
+        await ctx.db.patch(winnerUser._id, {
+          matchesPlayed: winnerUser.matchesPlayed + 1,
+          wins: (winnerUser.wins ?? 0) + 1,
+        });
+        await ctx.db.patch(user._id, {
+          matchesPlayed: user.matchesPlayed + 1,
+        });
+
+        ratingDeltas[winnerUser._id as string] = delta;
+        ratingDeltas[user._id as string] = -delta;
+      }
+    }
+
+    // Store forfeit info in matchState so the other player is notified.
+    if (state) {
+      const existingData = (state.data ?? {}) as Record<string, unknown>;
+      await ctx.db.patch(state._id, {
+        data: {
+          ...existingData,
+          forfeit: true,
+          forfeitedBy: user._id,
+          ratingDeltas,
+        },
+      });
+    }
+
+    return null;
+  },
+});
+
 export const rematch = mutation({
   args: { sessionToken: v.string(), roomId: v.id("rooms") },
   handler: async (ctx, { sessionToken, roomId }) => {
@@ -557,6 +712,7 @@ export const rematch = mutation({
       .withIndex("by_room", (q) => q.eq("roomId", roomId))
       .unique();
     if (state) await ctx.db.delete(state._id);
+    await cleanupMinefieldSecrets(ctx, roomId);
     return null;
   },
 });

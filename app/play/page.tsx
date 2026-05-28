@@ -83,8 +83,8 @@ function PlayInner() {
         {([
           { id: "room", label: "Create room" },
           { id: "join", label: "Join with code" },
-          { id: "quick", label: "Quick match" },
-        ] as { id: Mode; label: string }[]).map((t) => (
+          { id: "quick", label: "Quick match", wip: true },
+        ] as { id: Mode; label: string; wip?: boolean }[]).map((t) => (
           <button
             key={t.id}
             onClick={() => setMode(t.id)}
@@ -94,6 +94,11 @@ function PlayInner() {
             )}
           >
             {t.label}
+            {t.wip && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-magenta text-black border border-black leading-none">
+                WIP
+              </span>
+            )}
           </button>
         ))}
       </div>

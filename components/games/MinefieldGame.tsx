@@ -96,6 +96,8 @@ export function MinefieldGame({
 
   const elapsed = now - phaseStartedAt;
 
+  // Defensive: openedSafe may be undefined if matchState has old-format data.
+  const openedSafe: number[] = data?.openedSafe ?? [];
   const isMyTurn = data?.currentTurnUserId === userId;
   const youVoted = !!data?.continueVotes?.includes(userId);
   const oppVoted = !!data?.continueVotes?.includes(
@@ -114,7 +116,7 @@ export function MinefieldGame({
     if (!sessionToken) return;
     if (!isMyTurn) return;
     if (data?.exploded) return;
-    if (data?.openedSafe?.includes(idx)) return;
+    if (openedSafe.includes(idx)) return;
     if (pendingRef.current.has(idx)) return;
 
     pendingRef.current.add(idx);
@@ -204,7 +206,7 @@ export function MinefieldGame({
 
           {phase === "playing" && data && (
             <PlayingStage
-              data={data}
+              data={{ ...data, openedSafe }}
               userId={userId}
               isMyTurn={isMyTurn}
               flashIdx={flashIdx}
