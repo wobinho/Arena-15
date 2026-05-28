@@ -13,6 +13,7 @@ import { NumberTrapGame } from "@/components/games/NumberTrapGame";
 import { SafecrackerGame } from "@/components/games/SafecrackerGame";
 import { SpotlightGame } from "@/components/games/SpotlightGame";
 import { MinefieldGame } from "@/components/games/MinefieldGame";
+import { MimicGame } from "@/components/games/MimicGame";
 
 export default function MatchPage() {
   const { code } = useParams<{ code: string }>();
@@ -75,6 +76,9 @@ export default function MatchPage() {
       )}
       {room.gameId === "minefield" && (
         <MinefieldGame room={room} matchState={matchState ?? null} userId={user.id} />
+      )}
+      {room.gameId === "mimic" && (
+        <MimicGame room={room} matchState={matchState ?? null} userId={user.id} />
       )}
     </GameShell>
   );

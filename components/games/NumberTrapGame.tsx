@@ -13,8 +13,10 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 
 // Mirror server constants
 const TARGET_SCORE = 3;
-const PICK_DURATION_MS = 15_000;
+const PICK_DURATION_MS = 60_000;
 const AUTO_ADVANCE_MS = 5_000;
+const THRESHOLD_MIN = 17;
+const THRESHOLD_MAX = 25;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,12 +48,14 @@ type RoundResult = {
   round: number;
   picks: PickEntry[];
   sum: number;
+  threshold: number;
   trapTriggered: boolean;
   winnerUserId?: Id<"users">;
 };
 
 type MatchData = {
   picks: Record<string, number>;
+  threshold: number;
   lastRound?: RoundResult;
   continueVotes?: Id<"users">[];
   ratingDeltas?: Record<string, number>;
@@ -98,7 +102,7 @@ export function NumberTrapGame({
   const elapsed = now - phaseStartedAt;
   const msLeft = Math.max(0, PICK_DURATION_MS - elapsed);
   const secsLeft = Math.ceil(msLeft / 1000);
-  const timerDanger = secsLeft <= 5;
+  const timerDanger = secsLeft <= 10;
 
   // Per-player state
   const myPick = data?.picks?.[userId as string];
@@ -299,6 +303,19 @@ function PickingStage({
         <Timer secsLeft={secsLeft} danger={timerDanger} />
       </div>
 
+      {/* Threshold hint */}
+      <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-chunk border-[2px] border-black bg-ink-800">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-bone-200/60">
+          Trap threshold
+        </span>
+        <span className="font-display text-base text-lemon">
+          {THRESHOLD_MIN}–{THRESHOLD_MAX}
+        </span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-bone-200/40">
+          (hidden until reveal)
+        </span>
+      </div>
+
       {/* Status chips */}
       <div className="flex gap-2 mb-4">
         <span
@@ -451,19 +468,30 @@ function RoundResultStage({
         {iWon ? "You win the round!" : oppWon ? "Opponent wins!" : "Draw!"}
       </div>
 
+      {/* Threshold reveal */}
+      <div className="mb-3 flex items-center gap-2 px-4 py-2 rounded-chunk border-[2px] border-black bg-ink-800">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-bone-200/50">
+          Threshold revealed:
+        </span>
+        <span className="font-display text-xl text-lemon">{result.threshold}</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-bone-200/40">
+          · Sum: {result.sum}
+        </span>
+      </div>
+
       {/* The trap callout */}
       {result.trapTriggered && (
         <div className="mb-4 flex items-center gap-2 px-4 py-2 rounded-chunk border-[3px] border-black bg-coral text-black">
           <span className="font-display text-lg">⚠ TRAP!</span>
           <span className="text-xs font-bold uppercase tracking-widest">
-            Sum was {result.sum} &gt; 20 · lower wins
+            {result.sum} &gt; {result.threshold} · lower wins
           </span>
         </div>
       )}
 
       {!result.trapTriggered && (
         <div className="mb-4 text-[11px] font-bold uppercase tracking-widest text-bone-200/50">
-          Sum: {result.sum} · safe zone
+          {result.sum} &lt; {result.threshold} · safe zone · higher wins
         </div>
       )}
 
@@ -624,17 +652,22 @@ function MatchOverStage({
           <div className="text-[10px] font-bold uppercase tracking-widest text-bone-200/50 mb-2">
             Deciding round
           </div>
+          <div className="mb-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest text-bone-200/40">
+            <span>Threshold: {lastRound.threshold}</span>
+            <span className="opacity-50">·</span>
+            <span>Sum: {lastRound.sum}</span>
+          </div>
           {lastRound.trapTriggered && (
             <div className="mb-2 flex items-center justify-center gap-2 px-4 py-2 rounded-chunk border-[3px] border-black bg-coral text-black">
               <span className="font-display text-base">⚠ TRAP!</span>
               <span className="text-xs font-bold uppercase tracking-widest">
-                Sum {lastRound.sum} &gt; 20 · lower wins
+                {lastRound.sum} &gt; {lastRound.threshold} · lower wins
               </span>
             </div>
           )}
           {!lastRound.trapTriggered && (
             <div className="mb-2 text-[11px] font-bold uppercase tracking-widest text-bone-200/50">
-              Sum: {lastRound.sum} · safe zone
+              {lastRound.sum} &lt; {lastRound.threshold} · safe zone · higher wins
             </div>
           )}
           <div className="grid grid-cols-2 gap-3">

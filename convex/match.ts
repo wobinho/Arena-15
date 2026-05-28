@@ -9,6 +9,7 @@ import * as NumberTrap from "./games/numbertrap";
 import * as Safecracker from "./games/safecracker";
 import * as Spotlight from "./games/spotlight";
 import * as Minefield from "./games/minefield";
+import * as Mimic from "./games/mimic";
 
 // Each game module conforms to this contract.
 type GameModule = {
@@ -54,6 +55,8 @@ type GameModule = {
   playingTimeoutMs?: number;
 };
 
+const MINEFIELD_TURN_TIMEOUT_MS = 4000;
+
 const GAMES: Record<string, GameModule> = {
   timeout: Timeout,
   "high-low": HighLow,
@@ -65,6 +68,10 @@ const GAMES: Record<string, GameModule> = {
     playingTimeoutMs: Spotlight.PLAYING_TIMEOUT_MS,
   },
   minefield: Minefield,
+  mimic: {
+    ...Mimic,
+    pregameTimeoutMs: Mimic.PREGAME_TIMEOUT_MS,
+  },
 };
 
 export function getGameModule(gameId: string): GameModule {
@@ -176,6 +183,7 @@ async function finalizeMatchStats(
         gameId === "number-trap" ? 0.25 :
         gameId === "high-low" ? 0.2 :
         gameId === "minefield" ? 0.3 :
+        gameId === "mimic" ? 0.4 :
         gameId === "spotlight" ? 0.15 : 0.15;
       const delta = Math.round(factor * (loserRating / Math.max(0.01, winnerRating)) * 1000) / 1000;
 
@@ -233,6 +241,34 @@ async function maybeSchedulePickingTimeout(
     mod.pickingTimeoutMs + 1000,
     internal.match.autoPickingTimeout,
     { roomId, round },
+  );
+}
+
+/** Schedule the showing→input transition for Mimic (duration varies by pattern length). */
+async function scheduleShowingTimeout(
+  ctx: MutationCtx,
+  roomId: Id<"rooms">,
+  round: number,
+  data: Mimic.MimicData,
+) {
+  await ctx.scheduler.runAfter(
+    data.showingDurationMs + 500,
+    internal.match.autoShowingTimeout,
+    { roomId, round, patternLength: data.patternLength },
+  );
+}
+
+/** Schedule the per-turn auto-play timer for Minefield so the game never stalls. */
+async function scheduleMinefieldAutoTurn(
+  ctx: MutationCtx,
+  roomId: Id<"rooms">,
+  round: number,
+  data: Minefield.MinefieldData,
+) {
+  await ctx.scheduler.runAfter(
+    MINEFIELD_TURN_TIMEOUT_MS,
+    internal.match.autoMinefieldTurn,
+    { roomId, round, turnUserId: data.currentTurnUserId },
   );
 }
 
@@ -297,6 +333,10 @@ export async function startMatch(ctx: MutationCtx, roomId: Id<"rooms">) {
   await maybeSchedulePregameTimeout(ctx, room.gameId, roomId, 1, initial.phase);
   await maybeSchedulePickingTimeout(ctx, room.gameId, roomId, 1, initial.phase);
   await maybeSchedulePlayingTimeout(ctx, room.gameId, roomId, 1, initial.phase);
+
+  if (room.gameId === "minefield" && initial.phase === "playing") {
+    await scheduleMinefieldAutoTurn(ctx, roomId, 1, initial.data as Minefield.MinefieldData);
+  }
 }
 
 export const getMatchState = query({
@@ -373,6 +413,11 @@ export const submitAction = mutation({
         roomId,
         round: state.round,
       });
+    } else if (result.nextPhase === "playing" && state.gameId === "minefield") {
+      // Schedule auto-turn fallback so the game never stalls waiting for a player.
+      await scheduleMinefieldAutoTurn(ctx, roomId, state.round, result.nextData as Minefield.MinefieldData);
+    } else if (result.nextPhase === "showing" && state.gameId === "mimic") {
+      await scheduleShowingTimeout(ctx, roomId, state.round, result.nextData as Mimic.MimicData);
     }
     return null;
   },
@@ -420,6 +465,9 @@ export const nextRound = mutation({
         data: next.data,
       });
       await maybeSchedulePickingTimeout(ctx, state.gameId, roomId, nextRoundNum, next.phase);
+      if (state.gameId === "minefield" && next.phase === "playing") {
+        await scheduleMinefieldAutoTurn(ctx, roomId, nextRoundNum, next.data as Minefield.MinefieldData);
+      }
     } else {
       // Record vote, wait for the other player or the 5-second auto-advance.
       await ctx.db.patch(state._id, {
@@ -458,6 +506,9 @@ export const autoNextRound = internalMutation({
       data: next.data,
     });
     await maybeSchedulePickingTimeout(ctx, state.gameId, roomId, nextRoundNum, next.phase);
+    if (state.gameId === "minefield" && next.phase === "playing") {
+      await scheduleMinefieldAutoTurn(ctx, roomId, nextRoundNum, next.data as Minefield.MinefieldData);
+    }
     return null;
   },
 });
@@ -493,6 +544,10 @@ export const autoPregameTimeout = internalMutation({
 
     // After pregame ends, schedule the playing-phase timeout (e.g. for Spotlight).
     await maybeSchedulePlayingTimeout(ctx, state.gameId, roomId, round, result.nextPhase);
+    // For Mimic, schedule the showing→input transition after the animation completes.
+    if (state.gameId === "mimic" && result.nextPhase === "showing") {
+      await scheduleShowingTimeout(ctx, roomId, round, result.nextData as Mimic.MimicData);
+    }
     return null;
   },
 });
@@ -616,6 +671,107 @@ export const autoPlayingTimeout = internalMutation({
   },
 });
 
+/**
+ * Auto-opens a random box for the current minefield player if they haven't
+ * acted within MINEFIELD_TURN_TIMEOUT_MS. Fires for every turn so the game
+ * never stalls — stale firings (wrong round/turn) are silently ignored.
+ */
+export const autoMinefieldTurn = internalMutation({
+  args: {
+    roomId: v.id("rooms"),
+    round: v.number(),
+    turnUserId: v.id("users"),
+  },
+  handler: async (ctx, { roomId, round, turnUserId }) => {
+    const state = await ctx.db
+      .query("matchState")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .unique();
+
+    const data = state?.data as Minefield.MinefieldData | undefined;
+    if (
+      !state ||
+      state.phase !== "playing" ||
+      state.round !== round ||
+      data?.currentTurnUserId !== turnUserId
+    ) return null;
+
+    const room = await ctx.db.get(roomId);
+    if (!room || room.status !== "in-game") return null;
+
+    const players = await ctx.db
+      .query("roomPlayers")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .collect();
+
+    // Prefer safe boxes — look up existing bomb positions so we don't auto-detonate.
+    const openedSet = new Set(data.openedSafe);
+    const secret = await ctx.db
+      .query("minefieldSecrets")
+      .withIndex("by_room_round", (q) => q.eq("roomId", roomId).eq("round", round))
+      .unique();
+    const bombSet = secret ? new Set(secret.bombIndices) : new Set<number>();
+
+    const safeCandidates: number[] = [];
+    const allUnrevealed: number[] = [];
+    for (let i = 0; i < 25; i++) {
+      if (!openedSet.has(i)) {
+        allUnrevealed.push(i);
+        if (!bombSet.has(i)) safeCandidates.push(i);
+      }
+    }
+    const candidates = safeCandidates.length > 0 ? safeCandidates : allUnrevealed;
+    if (candidates.length === 0) return null;
+
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    const idx = candidates[buf[0] % candidates.length];
+
+    const result = await Minefield.submit(ctx, state, players, turnUserId, { type: "open", index: idx });
+
+    const patch: { data: unknown; phase?: string; phaseStartedAt?: number } = {
+      data: result.nextData,
+    };
+    if (result.nextPhase !== state.phase) {
+      patch.phase = result.nextPhase;
+      patch.phaseStartedAt = Date.now();
+    }
+    await ctx.db.patch(state._id, patch);
+
+    if (result.roundResult) {
+      await ctx.db.insert("roundResults", {
+        roomId,
+        round: state.round,
+        winnerUserId: result.roundResult.winnerUserId,
+        payload: result.roundResult.payload,
+        createdAt: Date.now(),
+      });
+    }
+
+    if (result.matchOver) {
+      await ctx.db.patch(roomId, { status: "finished" });
+      const ratingDeltas = await finalizeMatchStats(ctx, roomId, players);
+      if (Object.keys(ratingDeltas).length > 0) {
+        await ctx.db.patch(state._id, {
+          data: { ...(result.nextData as Record<string, unknown>), ratingDeltas },
+        });
+      }
+    } else if (result.nextPhase === "round-result") {
+      await ctx.scheduler.runAfter(5000, internal.match.autoNextRound, {
+        roomId,
+        round: state.round,
+      });
+    } else if (result.nextPhase === "playing") {
+      await scheduleMinefieldAutoTurn(
+        ctx, roomId, state.round,
+        result.nextData as Minefield.MinefieldData,
+      );
+    }
+
+    return null;
+  },
+});
+
 export const forfeit = mutation({
   args: { sessionToken: v.string(), roomId: v.id("rooms") },
   handler: async (ctx, { sessionToken, roomId }) => {
@@ -656,6 +812,7 @@ export const forfeit = mutation({
           gameId === "number-trap" ? 0.25 :
           gameId === "high-low" ? 0.2 :
           gameId === "minefield" ? 0.3 :
+          gameId === "mimic" ? 0.4 :
           gameId === "spotlight" ? 0.15 : 0.15;
         const delta = Math.round(factor * (gr1.rating / Math.max(0.01, gr0.rating)) * 1000) / 1000;
 
@@ -688,6 +845,46 @@ export const forfeit = mutation({
       });
     }
 
+    return null;
+  },
+});
+
+/**
+ * Transitions Mimic from showing → input once the pattern animation is complete.
+ * Uses patternLength to ignore stale firings from previous cycles.
+ */
+export const autoShowingTimeout = internalMutation({
+  args: { roomId: v.id("rooms"), round: v.number(), patternLength: v.number() },
+  handler: async (ctx, { roomId, round, patternLength }) => {
+    const state = await ctx.db
+      .query("matchState")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .unique();
+
+    const data = state?.data as Mimic.MimicData | undefined;
+    if (
+      !state ||
+      state.phase !== "showing" ||
+      state.round !== round ||
+      data?.patternLength !== patternLength
+    ) return null;
+
+    const room = await ctx.db.get(roomId);
+    if (!room || room.status !== "in-game") return null;
+
+    const players = await ctx.db
+      .query("roomPlayers")
+      .withIndex("by_room", (q) => q.eq("roomId", roomId))
+      .collect();
+
+    const result = await Mimic.onShowingTimeout(ctx, state, players);
+    if (!result) return null;
+
+    await ctx.db.patch(state._id, {
+      phase: result.nextPhase,
+      phaseStartedAt: Date.now(),
+      data: result.nextData,
+    });
     return null;
   },
 });

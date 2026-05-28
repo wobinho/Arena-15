@@ -1,11 +1,13 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
 
-export const PICK_DURATION_MS = 15_000;
+export const PICK_DURATION_MS = 60_000;
 export const TARGET_SCORE = 3; // First to 3 round wins
+export const THRESHOLD_MIN = 17;
+export const THRESHOLD_MAX = 25;
 
 // Phases:
-//  "picking"      – both players are choosing a number (15-second window)
+//  "picking"      – both players are choosing a number (60-second window)
 //  "round-result" – both have submitted (or timed out); result is shown
 //  "match-over"   – someone reached TARGET_SCORE
 export type NumberTrapPhase = "picking" | "round-result" | "match-over";
@@ -20,16 +22,22 @@ export type NumberTrapRoundResult = {
   round: number;
   picks: PickEntry[];
   sum: number;
-  trapTriggered: boolean; // sum > 20 → lower number wins
+  threshold: number; // revealed after both lock in
+  trapTriggered: boolean; // sum > threshold → lower number wins
   winnerUserId?: Id<"users">;
 };
 
 export type NumberTrapData = {
   picks: Record<string, number>; // userId -> chosen number (only present after submission)
+  threshold: number; // random 17-25, generated at round start, hidden until reveal
   lastRound?: NumberTrapRoundResult;
   continueVotes?: Id<"users">[];
   ratingDeltas?: Record<string, number>;
 };
+
+function generateThreshold(): number {
+  return Math.floor(Math.random() * (THRESHOLD_MAX - THRESHOLD_MIN + 1)) + THRESHOLD_MIN;
+}
 
 export type NumberTrapAction = { type: "pick"; number: number };
 
@@ -40,7 +48,7 @@ export function initialMatchData(
 ): { phase: string; data: NumberTrapData } {
   return {
     phase: "picking" satisfies NumberTrapPhase,
-    data: { picks: {} },
+    data: { picks: {}, threshold: generateThreshold() },
   };
 }
 
@@ -50,7 +58,7 @@ export function nextRoundData(
 ): { phase: string; data: NumberTrapData } {
   return {
     phase: "picking" satisfies NumberTrapPhase,
-    data: { picks: {} },
+    data: { picks: {}, threshold: generateThreshold() },
   };
 }
 
@@ -143,6 +151,9 @@ async function resolveRound(
 }> {
   if (players.length !== 2) throw new Error("Number Trap requires exactly 2 players");
 
+  const data = state.data as NumberTrapData;
+  const threshold = data.threshold ?? 20; // fallback for legacy rounds
+
   const [p0, p1] = players;
   const to0 = timedOutIds.some((id) => id === p0.userId);
   const to1 = timedOutIds.some((id) => id === p1.userId);
@@ -150,8 +161,8 @@ async function resolveRound(
   const pick1 = picks[p1.userId as string] ?? 0;
 
   const sum = pick0 + pick1;
-  // Trap fires when sum EXCEEDS 20 (sum of exactly 20 is safe → higher still wins)
-  const trapTriggered = sum > 20;
+  // Trap fires when sum strictly exceeds the threshold → lower number wins
+  const trapTriggered = sum > threshold;
 
   let winnerUserId: Id<"users"> | undefined;
 
@@ -210,13 +221,14 @@ async function resolveRound(
     round: state.round,
     picks: pickEntries,
     sum,
+    threshold,
     trapTriggered,
     winnerUserId,
   };
 
   return {
     nextPhase: matchOver ? "match-over" : "round-result",
-    nextData: { picks, lastRound: roundResult },
+    nextData: { picks, threshold, lastRound: roundResult },
     roundResult: {
       winnerUserId: matchOver ? overallWinnerUserId : winnerUserId,
       payload: roundResult,
