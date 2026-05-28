@@ -55,7 +55,7 @@ type GameModule = {
   playingTimeoutMs?: number;
 };
 
-const MINEFIELD_TURN_TIMEOUT_MS = 4000;
+const MINEFIELD_TURN_TIMEOUT_MS = 15000;
 
 const GAMES: Record<string, GameModule> = {
   timeout: Timeout,

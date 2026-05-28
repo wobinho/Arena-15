@@ -8,9 +8,9 @@
  * @module
  */
 
-import type * as admin from "../admin.js";
 import type * as crons from "../crons.js";
 import type * as games_highlow from "../games/highlow.js";
+import type * as games_mimic from "../games/mimic.js";
 import type * as games_minefield from "../games/minefield.js";
 import type * as games_numbertrap from "../games/numbertrap.js";
 import type * as games_safecracker from "../games/safecracker.js";
@@ -29,9 +29,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  admin: typeof admin;
   crons: typeof crons;
   "games/highlow": typeof games_highlow;
+  "games/mimic": typeof games_mimic;
   "games/minefield": typeof games_minefield;
   "games/numbertrap": typeof games_numbertrap;
   "games/safecracker": typeof games_safecracker;
