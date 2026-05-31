@@ -1,4 +1,4 @@
-export type GameId = "timeout" | "high-low" | "number-trap" | "safecracker" | "spotlight" | "minefield" | "mimic";
+export type GameId = "timeout" | "high-low" | "number-trap" | "safecracker" | "spotlight";
 
 export type Game = {
   id: GameId;
@@ -110,46 +110,6 @@ export const GAMES: Game[] = [
       "A coin flip decides who guesses first.",
       "On your turn, submit a 4-digit guess — each correct digit in the right position locks in.",
       "Players alternate turns. First to crack all 4 digits of the opponent's code wins.",
-    ],
-  },
-  {
-    id: "minefield",
-    name: "Minefield",
-    tagline: "Click safe. Avoid the boom.",
-    description:
-      "Both players face the same 5×5 grid of 25 boxes hiding 3 bombs. Open boxes one by one — hit a bomb and you lose the round. First to 3 round wins takes the match.",
-    duration: "~3 min",
-    players: "1 v 1",
-    difficulty: "Hectic",
-    accent: "cyan",
-    icon: "minefield-mark",
-    status: "live",
-    rules: [
-      "Both players face the same 5×5 grid with 3 hidden bombs.",
-      "Open boxes one at a time — safe boxes are revealed instantly.",
-      "Hit a bomb and you immediately lose the round.",
-      "Your opponent wins the round when you explode (and vice versa).",
-      "First player to win 3 rounds takes the match.",
-    ],
-  },
-  {
-    id: "mimic",
-    name: "Mimic",
-    tagline: "Remember. Repeat. Survive.",
-    description:
-      "A pattern memory duel. Watch the sequence of tiles light up, then mimic it exactly. Each round both players survive, the pattern grows longer. One wrong tap and you lose.",
-    duration: "~2 min",
-    players: "1 v 1",
-    difficulty: "Spicy",
-    accent: "magenta",
-    icon: "mimic-mark",
-    status: "live",
-    rules: [
-      "Watch as a sequence of tiles lights up on a 3×4 grid.",
-      "Both players must click the same tiles in the same order.",
-      "If both players get it right, the pattern grows by one step.",
-      "Click the wrong tile and you immediately lose.",
-      "Survive longer patterns to rack up rating.",
     ],
   },
 ];

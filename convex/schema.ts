@@ -96,15 +96,4 @@ export default defineSchema({
     code: v.string(), // 4-digit string, e.g. "1234"
   }).index("by_room_user", ["roomId", "userId"]),
 
-  /**
-   * Server-only store for Minefield bomb positions.
-   * Generated on the first box-open of each round and NEVER returned by
-   * any public query — revealed only in roundResult.payload after the
-   * round ends.
-   */
-  minefieldSecrets: defineTable({
-    roomId: v.id("rooms"),
-    round: v.number(),
-    bombIndices: v.array(v.number()), // 3 indices in 0–24 (5×5 grid)
-  }).index("by_room_round", ["roomId", "round"]),
 });
