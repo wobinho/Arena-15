@@ -199,7 +199,14 @@ export const toggleReady = mutation({
     await ctx.db.patch(player._id, { ready: !player.ready });
 
     const room = await ctx.db.get(roomId);
-    if (!room || room.status !== "lobby") return null;
+    if (!room) return null;
+    // While in-game, ready toggling has no effect on match start.
+    if (room.status === "in-game") return null;
+    // After a finished match, a player readying up resets the room to lobby
+    // so both players can queue again without needing an explicit rematch call.
+    if (room.status === "finished") {
+      await ctx.db.patch(roomId, { status: "lobby" });
+    }
     const players = await ctx.db
       .query("roomPlayers")
       .withIndex("by_room", (q) => q.eq("roomId", roomId))
