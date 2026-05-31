@@ -1,4 +1,4 @@
-export type GameId = "timeout" | "high-low" | "number-trap" | "safecracker" | "spotlight";
+export type GameId = "timeout" | "high-low" | "number-trap" | "safecracker" | "spotlight" | "minefield" | "mimic";
 
 export type Game = {
   id: GameId;
@@ -91,6 +91,47 @@ export const GAMES: Game[] = [
       "Tapping the zone when it's red costs you −1 point.",
       "The game lasts exactly 30 seconds.",
       "The player with the highest score when time runs out wins.",
+    ],
+  },
+  {
+    id: "minefield",
+    name: "Minefield",
+    tagline: "One wrong step and you're gone.",
+    description:
+      "A shared 5×5 grid hides 3 bombs. A coin flip decides who goes first. Take turns opening boxes — hit a bomb and you lose the round. First to 3 wins takes the match.",
+    duration: "~3 min",
+    players: "1 v 1",
+    difficulty: "Spicy",
+    accent: "cyan",
+    icon: "minefield-mark",
+    status: "live",
+    rules: [
+      "A 5×5 grid of 25 boxes is shared between both players — 3 hide bombs, 22 are safe.",
+      "A coin flip decides who opens first.",
+      "Players alternate turns opening one box at a time.",
+      "Opening a safe box reveals it for both players. Opening a bomb loses you the round.",
+      "First player to win 3 rounds takes the match.",
+    ],
+  },
+  {
+    id: "mimic",
+    name: "Mimic",
+    tagline: "Watch, remember, repeat.",
+    description:
+      "A turn-based memory duel. The game flashes a pattern on a 3×4 grid — then each player must repeat it from memory. Both right? The pattern grows. One wrong? They lose.",
+    duration: "~3 min",
+    players: "1 v 1",
+    difficulty: "Spicy",
+    accent: "cyan",
+    icon: "mimic-mark",
+    status: "live",
+    rules: [
+      "A coin flip decides who goes first.",
+      "The pattern is shown only to the active player — watch it carefully!",
+      "Click the tiles in the exact order shown to complete your turn.",
+      "If you fail and your opponent succeeds, you lose.",
+      "If both players fail the same pattern, you restart that level.",
+      "Both succeed? The pattern grows by one step.",
     ],
   },
   {
