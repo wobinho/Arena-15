@@ -99,6 +99,8 @@ export function MinefieldGame({
   // Defensive: openedSafe may be undefined if matchState has old-format data.
   const openedSafe: number[] = data?.openedSafe ?? [];
   const isMyTurn = data?.currentTurnUserId === userId;
+  // Debug: log turn state to help diagnose isMyTurn=false for both players
+  console.log("[Minefield] userId:", userId, "currentTurnUserId:", data?.currentTurnUserId, "isMyTurn:", isMyTurn);
   const youVoted = !!data?.continueVotes?.includes(userId);
   const oppVoted = !!data?.continueVotes?.includes(
     opp?.userId ?? ("" as Id<"users">),
@@ -285,6 +287,12 @@ function PlayingStage({
 
   return (
     <div className="relative px-5 pt-5 pb-6">
+      {/* Debug: remove once turn bug is diagnosed */}
+      <div className="mb-2 p-1 bg-black/60 text-[9px] font-mono text-bone-200/60 rounded break-all">
+        <div>me: {userId as string}</div>
+        <div>turn: {data.currentTurnUserId as string}</div>
+        <div>match: {String(data.currentTurnUserId === userId)}</div>
+      </div>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
